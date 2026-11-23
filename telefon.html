@@ -25,7 +25,7 @@
                 <p id="sessionInfo" class="text-[11px] text-amber-300 font-semibold">İrsaliye oturumu bekleniyor...</p>
             </div>
         </div>
-        <button type="button" id="connStatus" onclick="forceSyncNow()" class="text-[11px] font-bold text-amber-300 text-right">
+        <button type="button" id="connStatus" onclick="forceReconnect()" class="text-[11px] font-bold text-amber-300 text-right">
             <i class="fa-solid fa-circle text-[8px]"></i> Bağlanıyor...
         </button>
     </header>
@@ -97,4 +97,562 @@
             projectId: "siparis-takip-4d2a7",
             storageBucket: "siparis-takip-4d2a7.firebasestorage.app",
             messagingSenderId: "442166924279",
-            appId: "1:442166924279:
+            appId: "1:442166924279:web:ac8103ee871918e524d4f2",
+            measurementId: "G-FLCPTLX79X"
+        };
+
+        const DB_BASE_URL = firebaseConfig.databaseURL.replace(/\/+$/, '');
+        const SESSION_PATH = 'kutay_fethiye_aktif_kabul';
+
+        let db = null;
+        let kabulRef = null;
+        let currentSession = null;
+        let scannedItems = [];
+        let isRealtimeOnline = false;
+
+        let mediaStream = null;
+        let scanLoopId = null;
+        let zxingScanner = null;
+        let nativeDetector = null;
+        let scanningActive = false;
+
+        function setConnBadge(text, colorClass) {
+            const el = document.getElementById('connStatus');
+            if (!el) return;
+            el.className = `text-[11px] font-bold ${colorClass} text-right`;
+            el.innerHTML = `<i class="fa-solid fa-circle text-[8px]"></i> ${text}`;
+        }
+
+        function setStatusMsg(msg, isErr = false) {
+            const el = document.getElementById('barcodeStatusText');
+            if (!el) return;
+            el.className = isErr ? 'text-rose-400 font-bold truncate' : 'text-emerald-300 font-semibold truncate';
+            el.innerText = msg;
+        }
+
+        function cleanCode(val) {
+            let s = String(val || '').trim().toUpperCase();
+            s = s.replace(/^P[\s\-:\/]*/i, '');
+            s = s.replace(/[^A-Z0-9]/g, '');
+            s = s.replace(/^P+/, '');
+
+            const trailing10 = s.match(/^([A-Z0-9]{8,11})10$/);
+            if (trailing10) {
+                return trailing10[1];
+            }
+
+            return s;
+        }
+
+        function normalizeStatus(rawStatus) {
+            const st = String(rawStatus || '')
+                .toLowerCase()
+                .replace(/ı/g, 'i')
+                .replace(/ğ/g, 'g')
+                .replace(/ü/g, 'u')
+                .replace(/ş/g, 's')
+                .replace(/ö/g, 'o')
+                .replace(/ç/g, 'c')
+                .trim();
+
+            if (!st) return 'unknown';
+            if (
+                st === 'geldi' ||
+                st.includes('geldi') ||
+                st.includes('teslim') ||
+                st.includes('stokta') ||
+                st.includes('tamam') ||
+                st.includes('arrived') ||
+                st.includes('received')
+            ) {
+                return 'arrived';
+            }
+            if (
+                st.includes('siparis') ||
+                st.includes('bekle') ||
+                st.includes('yolda') ||
+                st.includes('order') ||
+                st.includes('pending')
+            ) {
+                return 'ordered';
+            }
+            return 'unknown';
+        }
+
+        function getPartOrderStatus(code) {
+            const c = cleanCode(code);
+            if (!c || !currentSession) return { state: 'no_list', raw: '' };
+
+            const statusMaps = [
+                currentSession.parcaDurumlari,
+                currentSession.durumlar,
+                currentSession.statuses
+            ];
+
+            for (const m of statusMaps) {
+                if (m && typeof m === 'object') {
+                    for (const [k, v] of Object.entries(m)) {
+                        if (cleanCode(k) === c) {
+                            const rawVal = typeof v === 'object' && v !== null ? (v.durum || v.status || '') : v;
+                            return { state: normalizeStatus(rawVal), raw: String(rawVal || '') };
+                        }
+                    }
+                }
+            }
+
+            const listSources = [
+                currentSession.parcalar,
+                currentSession.kalemler,
+                currentSession.items,
+                currentSession.beklenen
+            ];
+
+            for (const src of listSources) {
+                if (!src) continue;
+                const entries = Array.isArray(src) ? src : Object.values(src);
+                for (const entry of entries) {
+                    if (entry && typeof entry === 'object') {
+                        const entryCode = cleanCode(entry.kod || entry.parcaNo || entry.parca_no || entry.code);
+                        if (entryCode === c) {
+                            const rawVal = entry.durum || entry.status || entry.konum || '';
+                            const normalized = normalizeStatus(rawVal);
+                            if (normalized !== 'unknown') {
+                                return { state: normalized, raw: String(rawVal || '') };
+                            }
+                            if (entry.geldi === true || entry.teslimAlindi === true) {
+                                return { state: 'arrived', raw: 'geldi' };
+                            }
+                            return { state: 'ordered', raw: String(rawVal || 'sipariş') };
+                        }
+                    }
+                }
+            }
+
+            if (currentSession.beklenen && typeof currentSession.beklenen === 'object') {
+                for (const k of Object.keys(currentSession.beklenen)) {
+                    if (cleanCode(k) === c) {
+                        return { state: 'ordered', raw: 'sipariş' };
+                    }
+                }
+            }
+
+            return { state: 'not_in_list', raw: '' };
+        }
+
+        function getExpectedTotals() {
+            const map = {};
+            if (currentSession && currentSession.beklenen) {
+                Object.entries(currentSession.beklenen).forEach(([k, v]) => {
+                    const c = cleanCode(k);
+                    if (c) map[c] = (map[c] || 0) + (parseInt(v, 10) || 1);
+                });
+            }
+            return map;
+        }
+
+        function getScannedTotals() {
+            const map = {};
+            scannedItems.forEach(item => {
+                const c = cleanCode(item.kod);
+                if (c) map[c] = (map[c] || 0) + (parseInt(item.adet, 10) || 1);
+            });
+            return map;
+        }
+
+        function refreshMatchBadge() {
+            const badge = document.getElementById('matchBadge');
+            const c = cleanCode(document.getElementById('parcaNoInput').value);
+
+            if (!c) {
+                badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300';
+                badge.innerText = 'Eşleşme bekleniyor';
+                return;
+            }
+
+            const partStatus = getPartOrderStatus(c);
+            if (partStatus.state === 'arrived') {
+                badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700';
+                badge.innerText = 'Geldi (İşlem Yapılmaz)';
+                return;
+            }
+
+            if (partStatus.state === 'ordered') {
+                const expMap = getExpectedTotals();
+                const scMap = getScannedTotals();
+                const expQty = expMap[c];
+                const scQty = scMap[c] || 0;
+                badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-700';
+                badge.innerText = typeof expQty === 'number' ? `Siparişte (${scQty}/${expQty})` : 'Sipariş Konumunda';
+                return;
+            }
+
+            const expMap = getExpectedTotals();
+            const scMap = getScannedTotals();
+            const expQty = expMap[c];
+            const scQty = scMap[c] || 0;
+
+            if (typeof expQty === 'number') {
+                badge.className = scQty < expQty
+                    ? 'text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700'
+                    : 'text-[10px] font-bold px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-700';
+                badge.innerText = `İrsaliyede var (${scQty}/${expQty})`;
+            } else if (Object.keys(expMap).length > 0) {
+                badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-700';
+                badge.innerText = 'İrsaliye listesinde yok';
+            } else {
+                badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-700';
+                badge.innerText = `Okunan: ${scQty}`;
+            }
+        }
+
+        function applySessionData(data) {
+            currentSession = data && typeof data === 'object' ? data : null;
+            const infoEl = document.getElementById('sessionInfo');
+
+            const isActive = !!(
+                currentSession &&
+                (currentSession.active === true ||
+                 currentSession.active === 'true' ||
+                 currentSession.irsaliyeNo ||
+                 currentSession.beklenen)
+            );
+
+            if (isActive) {
+                infoEl.className = 'text-[11px] text-emerald-400 font-bold';
+                infoEl.innerText = `Aktif İrsaliye: ${currentSession.irsaliyeNo || 'Açık Oturum'}`;
+                scannedItems = currentSession.okutulanlar && typeof currentSession.okutulanlar === 'object'
+                    ? Object.entries(currentSession.okutulanlar).map(([k, v]) => ({
+                        key: k,
+                        kod: cleanCode(v && v.kod),
+                        adet: parseInt(v && v.adet, 10) || 1,
+                        zaman: (v && v.zaman) || ''
+                    })).filter(x => x.kod).reverse()
+                    : [];
+            } else {
+                infoEl.className = 'text-[11px] text-amber-300 font-semibold';
+                infoEl.innerText = 'İrsaliye oturumu bekleniyor...';
+                scannedItems = [];
+            }
+
+            renderList();
+        }
+
+        function renderList() {
+            const box = document.getElementById('scannedListBox');
+            const summary = document.getElementById('countSummary');
+            const expMap = getExpectedTotals();
+            const scMap = getScannedTotals();
+
+            const totalExp = Object.values(expMap).reduce((a, b) => a + b, 0);
+            const totalSc = Object.values(scMap).reduce((a, b) => a + b, 0);
+            summary.innerText = totalExp > 0 ? `${totalSc} / ${totalExp} Adet` : `${totalSc} Adet`;
+
+            const keys = Array.from(new Set([...Object.keys(expMap), ...Object.keys(scMap)]));
+            if (!keys.length) {
+                box.innerHTML = '<p class="py-4 text-center text-slate-500">Henüz parça eklenmedi.</p>';
+                refreshMatchBadge();
+                return;
+            }
+
+            box.innerHTML = keys.map((code, idx) => {
+                const exp = expMap[code];
+                const sc = scMap[code] || 0;
+                const statusInfo = getPartOrderStatus(code);
+                let tag = `<span class="bg-blue-950 text-blue-200 border border-blue-800 font-bold px-2 py-1 rounded-lg">${sc} Okundu</span>`;
+
+                if (statusInfo.state === 'arrived') {
+                    tag = `<span class="bg-emerald-950 text-emerald-300 border border-emerald-700 font-bold px-2 py-1 rounded-lg">Geldi</span>`;
+                } else if (typeof exp === 'number') {
+                    if (sc === exp) {
+                        tag = `<span class="bg-emerald-950 text-emerald-300 border border-emerald-700 font-bold px-2 py-1 rounded-lg">Tamam (${sc}/${exp})</span>`;
+                    } else if (sc < exp) {
+                        tag = `<span class="bg-amber-950 text-amber-300 border border-amber-700 font-bold px-2 py-1 rounded-lg">Eksik (${sc}/${exp})</span>`;
+                    } else {
+                        tag = `<span class="bg-rose-950 text-rose-300 border border-rose-700 font-bold px-2 py-1 rounded-lg">Fazla (${sc}/${exp})</span>`;
+                    }
+                } else {
+                    tag = `<span class="bg-purple-950 text-purple-200 border border-purple-700 font-bold px-2 py-1 rounded-lg">Listede Yok (${sc})</span>`;
+                }
+
+                return `
+                    <div class="py-2.5 flex items-center justify-between gap-2">
+                        <div class="min-w-0">
+                            <span class="text-slate-400 font-mono mr-1.5">${idx + 1}.</span>
+                            <span class="font-mono font-bold text-emerald-400 break-all">${code}</span>
+                        </div>
+                        ${tag}
+                    </div>
+                `;
+            }).join('');
+
+            refreshMatchBadge();
+        }
+
+        async function fetchSessionFallback() {
+            const url = `${DB_BASE_URL}/${SESSION_PATH}.json`;
+            const res = await fetch(url, { cache: 'no-store' });
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}`);
+            }
+            const data = await res.json();
+            applySessionData(data);
+            if (!isRealtimeOnline) {
+                setConnBadge('Bağlı', 'text-emerald-400');
+            }
+        }
+
+        function initDatabase() {
+            if (!window.firebase || !window.firebase.database) {
+                fetchSessionFallback().catch((err) => {
+                    setConnBadge(`Bağlantı Yok (${err.message})`, 'text-rose-400');
+                });
+                return;
+            }
+
+            try {
+                if (!firebase.apps.length) {
+                    firebase.initializeApp(firebaseConfig);
+                }
+                db = firebase.database();
+                kabulRef = db.ref(SESSION_PATH);
+
+                db.ref('.info/connected').on('value', (snap) => {
+                    isRealtimeOnline = snap.val() === true;
+                    if (isRealtimeOnline) {
+                        setConnBadge('Bağlı', 'text-emerald-400');
+                    } else {
+                        fetchSessionFallback().catch(() => {
+                            setConnBadge('Bağlantı Yok (Yeniden Dene)', 'text-rose-400');
+                        });
+                    }
+                });
+
+                kabulRef.on('value', (snap) => {
+                    applySessionData(snap.val());
+                }, (err) => {
+                    setConnBadge(`Hata (${err.code || 'Okuma'})`, 'text-rose-400');
+                    setStatusMsg(`Veritabanı okuma hatası: ${err.message}`, true);
+                });
+            } catch (err) {
+                setConnBadge(`Bağlantı Yok (${err.message})`, 'text-rose-400');
+                fetchSessionFallback().catch(() => {});
+            }
+        }
+
+        async function forceReconnect() {
+            setConnBadge('Bağlanıyor...', 'text-amber-300');
+            try {
+                if (db) {
+                    db.goOnline();
+                }
+                await fetchSessionFallback();
+                setConnBadge('Bağlı', 'text-emerald-400');
+                setStatusMsg('Bağlantı güncellendi.');
+            } catch (err) {
+                setConnBadge(`Bağlantı Yok (${err.message})`, 'text-rose-400');
+                setStatusMsg(`Bağlantı hatası: ${err.message}`, true);
+            }
+        }
+
+        function onBarcodeDetected(rawText) {
+            const code = cleanCode(rawText);
+            if (!code) return;
+            document.getElementById('parcaNoInput').value = code;
+            refreshMatchBadge();
+
+            const statusInfo = getPartOrderStatus(code);
+            if (statusInfo.state === 'arrived') {
+                setStatusMsg(`${code} listede GELMİŞ durumda — işlem yapılmayacak.`, true);
+            } else if (statusInfo.state === 'ordered') {
+                setStatusMsg(`${code} SİPARİŞ konumunda — eklenebilir.`);
+            } else {
+                setStatusMsg(`Okunan: "${rawText}" → Parça: ${code}`);
+            }
+
+            if (navigator.vibrate) navigator.vibrate(80);
+            stopBarcodeScan();
+        }
+
+        async function startBarcodeScan() {
+            if (scanningActive) {
+                stopBarcodeScan();
+            }
+
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                setStatusMsg('Tarayıcı kamera erişimini desteklemiyor.', true);
+                return;
+            }
+
+            try {
+                scanningActive = true;
+                document.getElementById('barcodeIdleView').classList.add('hidden');
+                document.getElementById('barcodeLaserBox').classList.remove('hidden');
+                setStatusMsg('Kamera açılıyor...');
+
+                const video = document.getElementById('barcodeVideo');
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: { ideal: 'environment' },
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    },
+                    audio: false
+                });
+
+                video.srcObject = mediaStream;
+                await video.play();
+
+                if ('BarcodeDetector' in window) {
+                    try {
+                        nativeDetector = new BarcodeDetector({
+                            formats: ['code_128', 'code_39', 'code_93', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'qr_code', 'data_matrix', 'itf']
+                        });
+                    } catch (e) {
+                        nativeDetector = null;
+                    }
+                }
+
+                if (window.ZXing && window.ZXing.BrowserMultiFormatReader) {
+                    zxingScanner = new ZXing.BrowserMultiFormatReader();
+                }
+
+                setStatusMsg('Barkodu çerçeveye tutun...');
+
+                const tempCanvas = document.createElement('canvas');
+                const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+
+                scanLoopId = setInterval(async () => {
+                    if (!scanningActive || video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
+
+                    if (nativeDetector) {
+                        try {
+                            const found = await nativeDetector.detect(video);
+                            if (found && found.length > 0 && found[0].rawValue) {
+                                onBarcodeDetected(found[0].rawValue);
+                                return;
+                            }
+                        } catch (e) {}
+                    }
+
+                    if (zxingScanner) {
+                        try {
+                            tempCanvas.width = video.videoWidth;
+                            tempCanvas.height = video.videoHeight;
+                            tempCtx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
+                            const imgUrl = tempCanvas.toDataURL('image/jpeg', 0.85);
+                            const decoded = await zxingScanner.decodeFromImageUrl(imgUrl);
+                            if (decoded && decoded.getText) {
+                                onBarcodeDetected(decoded.getText());
+                                return;
+                            }
+                        } catch (e) {}
+                    }
+                }, 250);
+            } catch (err) {
+                scanningActive = false;
+                document.getElementById('barcodeLaserBox').classList.add('hidden');
+                document.getElementById('barcodeIdleView').classList.remove('hidden');
+                setStatusMsg(`Kamera hatası: ${err.message || 'izin gerekli'}`, true);
+            }
+        }
+
+        function stopBarcodeScan() {
+            scanningActive = false;
+            if (scanLoopId) {
+                clearInterval(scanLoopId);
+                scanLoopId = null;
+            }
+            if (zxingScanner) {
+                try { zxingScanner.reset(); } catch (e) {}
+                zxingScanner = null;
+            }
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(t => t.stop());
+                mediaStream = null;
+            }
+            const video = document.getElementById('barcodeVideo');
+            if (video) {
+                video.srcObject = null;
+            }
+            document.getElementById('barcodeLaserBox').classList.add('hidden');
+            document.getElementById('barcodeIdleView').classList.remove('hidden');
+            setStatusMsg('Kamera kapalı');
+        }
+
+        async function addPartToSession() {
+            const pInput = document.getElementById('parcaNoInput');
+            const qInput = document.getElementById('adetInput');
+            const kod = cleanCode(pInput.value);
+            const adet = parseInt(qInput.value, 10) || 1;
+
+            if (!kod) {
+                setStatusMsg('Lütfen barkod okutun veya Parça No girin.', true);
+                pInput.focus();
+                return;
+            }
+
+            const statusInfo = getPartOrderStatus(kod);
+
+            if (statusInfo.state === 'arrived') {
+                pInput.value = '';
+                qInput.value = '1';
+                refreshMatchBadge();
+                setStatusMsg(`${kod} listede GELMİŞ durumda — herhangi bir işlem yapılmadı.`, true);
+                pInput.focus();
+                return;
+            }
+
+            const hasOrderList = !!(
+                currentSession &&
+                (currentSession.parcaDurumlari ||
+                 currentSession.durumlar ||
+                 currentSession.parcalar ||
+                 currentSession.kalemler ||
+                 currentSession.beklenen)
+            );
+
+            if (hasOrderList && statusInfo.state !== 'ordered') {
+                pInput.value = '';
+                qInput.value = '1';
+                refreshMatchBadge();
+                setStatusMsg(`${kod} SİPARİŞ konumunda değil — işlem yapılmadı.`, true);
+                pInput.focus();
+                return;
+            }
+
+            const key = 'ok_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+            const item = {
+                kod,
+                adet: adet > 0 ? adet : 1,
+                zaman: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+            };
+
+            try {
+                if (kabulRef && isRealtimeOnline) {
+                    await kabulRef.child('okutulanlar').child(key).set(item);
+                } else {
+                    const res = await fetch(`${DB_BASE_URL}/${SESSION_PATH}/okutulanlar/${encodeURIComponent(key)}.json`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(item)
+                    });
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    await fetchSessionFallback();
+                }
+
+                pInput.value = '';
+                qInput.value = '1';
+                refreshMatchBadge();
+                setStatusMsg(`${kod} (${item.adet} adet) kaydedildi.`);
+                pInput.focus();
+            } catch (err) {
+                setConnBadge(`Bağlantı Yok (${err.message})`, 'text-rose-400');
+                setStatusMsg(`Kayıt hatası: ${err.message}`, true);
+            }
+        }
+
+        window.addEventListener('online', () => forceReconnect());
+        initDatabase();
+    </script>
+</body>
+</html>
