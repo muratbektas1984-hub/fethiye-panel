@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Kutay Fethiye - Telefon Sayım</title>
+    <title>Kutay Fethiye - Telefon Barkod Sayım</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
     <style>
         body { touch-action: manipulation; }
     </style>
@@ -18,10 +18,10 @@
     <header class="bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center justify-between sticky top-0 z-20">
         <div class="flex items-center gap-2.5">
             <div class="bg-blue-600 p-2 rounded-lg">
-                <i class="fa-solid fa-mobile-screen-button text-sm text-white"></i>
+                <i class="fa-solid fa-barcode text-sm text-white"></i>
             </div>
             <div>
-                <h1 class="text-sm font-bold leading-tight">Kutay Fethiye - Telefon</h1>
+                <h1 class="text-sm font-bold leading-tight">Kutay Fethiye - Barkod Sayım</h1>
                 <p id="sessionInfo" class="text-[11px] text-amber-300 font-semibold">İrsaliye oturumu bekleniyor...</p>
             </div>
         </div>
@@ -32,55 +32,50 @@
 
     <main class="flex-1 max-w-md w-full mx-auto p-3 space-y-3 pb-10">
 
-        <!-- 1. Kamera Açılış Alanı -->
+        <!-- 1. Kamera ve Barkod Tarama Alanı -->
         <section class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
             <div class="relative w-full h-56 bg-black flex items-center justify-center">
                 <video id="cameraVideo" class="w-full h-full object-cover" playsinline autoplay muted></video>
-                <div id="aimGuide" class="hidden pointer-events-none absolute inset-x-5 h-16 border-2 border-emerald-400 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.4)]"></div>
+                <div id="aimGuide" class="hidden pointer-events-none absolute inset-x-5 h-20 border-2 border-emerald-400 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]"></div>
                 <div id="cameraPlaceholder" class="absolute inset-0 flex flex-col items-center justify-center text-slate-400 text-xs font-semibold px-4 text-center bg-slate-900/90">
-                    <i class="fa-solid fa-camera text-2xl mb-2 text-blue-400"></i>
-                    <span>Kamera hazır. Sayıları okutmak için butona basın.</span>
+                    <i class="fa-solid fa-barcode text-2xl mb-2 text-blue-400"></i>
+                    <span>Barkod okutmak için aşağıdaki butona basın.</span>
                 </div>
             </div>
             <div class="px-3 py-2 bg-slate-900/95 border-t border-slate-800 flex items-center justify-between text-[11px]">
-                <span id="scanFeedback" class="text-slate-300 font-medium truncate">Bekleniyor...</span>
-                <button type="button" onclick="stopCamera()" class="text-rose-400 hover:text-rose-300 font-bold ml-2 shrink-0">
+                <span id="scanFeedback" class="text-slate-300 font-medium truncate">Barkod bekleniyor...</span>
+                <button type="button" onclick="stopBarcodeScanner()" class="text-rose-400 hover:text-rose-300 font-bold ml-2 shrink-0">
                     <i class="fa-solid fa-stop mr-1"></i>Kapat
                 </button>
             </div>
         </section>
 
-        <!-- 2. Sayı Oku Butonu -->
-        <button type="button" id="btnPartRead" onclick="readNumbersFromCamera(true)" class="w-full bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white font-bold py-3 rounded-xl shadow transition flex items-center justify-center gap-2 text-sm">
-            <i class="fa-solid fa-arrow-down-1-9 text-base"></i> Sayı Oku
+        <!-- 2. Barkod Oku Butonu -->
+        <button type="button" id="btnBarcodeScan" onclick="startBarcodeScanner()" class="w-full bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white font-bold py-3 rounded-xl shadow transition flex items-center justify-center gap-2 text-sm">
+            <i class="fa-solid fa-barcode text-base"></i> Barkod Oku
         </button>
 
-        <!-- 3. Tüm Alan Sayı Oku Butonu -->
-        <button type="button" id="btnTextOcr" onclick="readNumbersFromCamera(false)" class="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white font-bold py-3 rounded-xl shadow transition flex items-center justify-center gap-2 text-sm">
-            <i class="fa-solid fa-hashtag text-base"></i> Tam Ekran Sayı Oku
-        </button>
-
-        <!-- 4. Parça No (Sadece Sayı) Alanı -->
+        <!-- 3. Parça No Alanı -->
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-1">
             <div class="flex items-center justify-between">
-                <label for="partNoInput" class="block text-xs font-bold text-slate-300">Parça No (Sayı)</label>
+                <label for="partNoInput" class="block text-xs font-bold text-slate-300">Parça No (Barkod)</label>
                 <span id="matchStatusBadge" class="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300">Eşleşme bekleniyor</span>
             </div>
-            <input type="text" id="partNoInput" inputmode="numeric" oninput="updateMatchPreview()" placeholder="Sayıyı okutun veya yazın" class="w-full bg-slate-950 border border-slate-700 focus:border-blue-500 rounded-lg px-3 py-2.5 text-sm font-mono font-bold text-emerald-400 focus:outline-none">
+            <input type="text" id="partNoInput" oninput="updateMatchPreview()" placeholder="Barkod okutun veya parça no yazın" class="w-full bg-slate-950 border border-slate-700 focus:border-blue-500 rounded-lg px-3 py-2.5 text-sm font-mono font-bold text-emerald-400 uppercase focus:outline-none">
         </div>
 
-        <!-- 5. Adet Alanı -->
+        <!-- 4. Adet Alanı -->
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-1">
             <label for="qtyInput" class="block text-xs font-bold text-slate-300">Adet</label>
             <input type="number" id="qtyInput" min="1" value="1" class="w-full bg-slate-950 border border-slate-700 focus:border-blue-500 rounded-lg px-3 py-2.5 text-sm font-bold text-white focus:outline-none">
         </div>
 
-        <!-- 6. En Altta Ekle Butonu -->
+        <!-- 5. Ekle Butonu -->
         <button type="button" id="btnAddPart" onclick="addScannedPart()" class="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-black py-3.5 rounded-xl shadow-lg transition flex items-center justify-center gap-2 text-sm">
             <i class="fa-solid fa-plus-circle text-base"></i> Ekle
         </button>
 
-        <!-- 7. Eklenen ve Eşleşen Parçalar Listesi -->
+        <!-- 6. Eklenen ve Eşleşen Parçalar Listesi -->
         <section class="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-2.5">
             <div class="flex items-center justify-between border-b border-slate-800 pb-2">
                 <h2 class="text-xs font-bold uppercase tracking-wider text-slate-200 flex items-center gap-1.5">
@@ -89,352 +84,3 @@
                 <span id="addedCountBadge" class="text-[11px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded-full">0 / 0</span>
             </div>
             <div id="addedPartsList" class="divide-y divide-slate-800 text-xs">
-                <p class="py-4 text-center text-slate-500">Henüz parça eklenmedi.</p>
-            </div>
-        </section>
-
-        <p class="text-center text-[10px] text-slate-600 font-mono">Sürüm: v7 - 23.11</p>
-    </main>
-
-    <canvas id="captureCanvas" class="hidden"></canvas>
-
-    <script>
-        const firebaseConfig = {
-            apiKey: "AIzaSyCkXKhtHVj3wImlSOI7vNfv4LAFLmrtqYc",
-            authDomain: "siparis-takip-4d2a7.firebaseapp.com",
-            databaseURL: "https://siparis-takip-4d2a7-default-rtdb.firebaseio.com",
-            projectId: "siparis-takip-4d2a7",
-            storageBucket: "siparis-takip-4d2a7.firebasestorage.app",
-            messagingSenderId: "442166924279",
-            appId: "1:442166924279:web:ac8103ee871918e524d4f2",
-            measurementId: "G-FLCPTLX79X"
-        };
-
-        let db = null;
-        let activeKabulRef = null;
-        let activeSession = null;
-        let localAddedItems = [];
-        let mediaStream = null;
-        let isReadingOcr = false;
-
-        function onlyDigits(raw) {
-            return String(raw || '').replace(/\D+/g, '').trim();
-        }
-
-        function setConnStatus(html, colorClass) {
-            const el = document.getElementById('connStatus');
-            if (!el) return;
-            el.className = `text-[11px] font-bold ${colorClass}`;
-            el.innerHTML = html;
-        }
-
-        function setFeedback(text, isError = false) {
-            const el = document.getElementById('scanFeedback');
-            if (!el) return;
-            el.className = isError ? 'text-rose-400 font-bold truncate' : 'text-emerald-300 font-semibold truncate';
-            el.innerText = text;
-        }
-
-        function getExpectedMap() {
-            const map = {};
-            if (activeSession && activeSession.beklenen) {
-                Object.entries(activeSession.beklenen).forEach(([k, v]) => {
-                    const digits = onlyDigits(k);
-                    if (digits) map[digits] = (map[digits] || 0) + (parseInt(v, 10) || 1);
-                });
-            }
-            return map;
-        }
-
-        function getScannedTotalsMap() {
-            const map = {};
-            localAddedItems.forEach(item => {
-                const digits = onlyDigits(item.kod);
-                if (digits) map[digits] = (map[digits] || 0) + (parseInt(item.adet, 10) || 1);
-            });
-            return map;
-        }
-
-        function updateMatchPreview() {
-            const badge = document.getElementById('matchStatusBadge');
-            const rawVal = document.getElementById('partNoInput').value;
-            const digits = onlyDigits(rawVal);
-
-            if (!digits) {
-                badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300';
-                badge.innerText = 'Eşleşme bekleniyor';
-                return;
-            }
-
-            const expectedMap = getExpectedMap();
-            const scannedMap = getScannedTotalsMap();
-            const expQty = expectedMap[digits];
-            const alreadyQty = scannedMap[digits] || 0;
-
-            if (typeof expQty === 'number') {
-                const diff = expQty - alreadyQty;
-                if (diff > 0) {
-                    badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700';
-                    badge.innerText = `İrsaliyede var (${alreadyQty}/${expQty} okundu)`;
-                } else {
-                    badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-700';
-                    badge.innerText = `Hedef doldu (${alreadyQty}/${expQty})`;
-                }
-            } else if (Object.keys(expectedMap).length > 0) {
-                badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-700';
-                badge.innerText = 'İrsaliye listesinde yok';
-            } else {
-                badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-700';
-                badge.innerText = `Okunan: ${alreadyQty} adet`;
-            }
-        }
-
-        function renderAddedList() {
-            const container = document.getElementById('addedPartsList');
-            const badge = document.getElementById('addedCountBadge');
-
-            const expectedMap = getExpectedMap();
-            const scannedMap = getScannedTotalsMap();
-
-            const totalExpected = Object.values(expectedMap).reduce((a, b) => a + b, 0);
-            const totalScanned = Object.values(scannedMap).reduce((a, b) => a + b, 0);
-
-            badge.innerText = totalExpected > 0
-                ? `${totalScanned} / ${totalExpected} Adet`
-                : `${totalScanned} Adet`;
-
-            const keysToShow = Array.from(new Set([
-                ...Object.keys(expectedMap),
-                ...Object.keys(scannedMap)
-            ]));
-
-            if (keysToShow.length === 0) {
-                container.innerHTML = '<p class="py-4 text-center text-slate-500">Henüz parça eklenmedi.</p>';
-                updateMatchPreview();
-                return;
-            }
-
-            container.innerHTML = keysToShow.map((code, idx) => {
-                const exp = expectedMap[code];
-                const sc = scannedMap[code] || 0;
-
-                let statusHtml = `<span class="bg-blue-950 text-blue-200 border border-blue-800 font-bold px-2.5 py-1 rounded-lg shrink-0">${sc} Okundu</span>`;
-                if (typeof exp === 'number') {
-                    if (sc === exp) {
-                        statusHtml = `<span class="bg-emerald-950 text-emerald-300 border border-emerald-700 font-bold px-2.5 py-1 rounded-lg shrink-0">Tamam (${sc}/${exp})</span>`;
-                    } else if (sc < exp) {
-                        statusHtml = `<span class="bg-amber-950 text-amber-300 border border-amber-700 font-bold px-2.5 py-1 rounded-lg shrink-0">Eksik (${sc}/${exp})</span>`;
-                    } else {
-                        statusHtml = `<span class="bg-rose-950 text-rose-300 border border-rose-700 font-bold px-2.5 py-1 rounded-lg shrink-0">Fazla (${sc}/${exp})</span>`;
-                    }
-                } else {
-                    statusHtml = `<span class="bg-purple-950 text-purple-200 border border-purple-700 font-bold px-2.5 py-1 rounded-lg shrink-0">Listede Yok (${sc})</span>`;
-                }
-
-                return `
-                    <div class="py-2.5 flex items-center justify-between gap-2">
-                        <div class="min-w-0">
-                            <span class="text-slate-400 font-mono mr-1.5">${idx + 1}.</span>
-                            <span class="font-mono font-bold text-emerald-400 break-all">${code}</span>
-                        </div>
-                        ${statusHtml}
-                    </div>
-                `;
-            }).join('');
-
-            updateMatchPreview();
-        }
-
-        try {
-            if (window.firebase && !firebase.apps.length) {
-                firebase.initializeApp(firebaseConfig);
-            }
-            if (window.firebase) {
-                db = firebase.database();
-                activeKabulRef = db.ref('kutay_fethiye_aktif_kabul');
-
-                db.ref('.info/connected').on('value', (snap) => {
-                    if (snap.val() === true) {
-                        setConnStatus('<i class="fa-solid fa-circle text-[8px]"></i> Bağlı', 'text-emerald-400');
-                    } else {
-                        setConnStatus('<i class="fa-solid fa-circle text-[8px]"></i> Bağlantı Yok', 'text-rose-400');
-                    }
-                });
-
-                activeKabulRef.on('value', (snap) => {
-                    activeSession = snap.val();
-                    const sessionInfo = document.getElementById('sessionInfo');
-                    if (activeSession && activeSession.active) {
-                        sessionInfo.className = 'text-[11px] text-emerald-400 font-bold';
-                        sessionInfo.innerText = `Aktif İrsaliye: ${activeSession.irsaliyeNo || '-'}`;
-                        localAddedItems = activeSession.okutulanlar
-                            ? Object.entries(activeSession.okutulanlar).map(([key, val]) => ({
-                                key,
-                                kod: onlyDigits(val.kod),
-                                adet: parseInt(val.adet, 10) || 1,
-                                zaman: val.zaman || ''
-                            })).reverse()
-                            : [];
-                    } else {
-                        sessionInfo.className = 'text-[11px] text-amber-300 font-semibold';
-                        sessionInfo.innerText = 'İrsaliye oturumu bekleniyor...';
-                    }
-                    renderAddedList();
-                });
-            }
-        } catch (err) {
-            setConnStatus('<i class="fa-solid fa-circle text-[8px]"></i> Bağlantı Yok', 'text-rose-400');
-        }
-
-        async function openRearCameraStream() {
-            const video = document.getElementById('cameraVideo');
-            const placeholder = document.getElementById('cameraPlaceholder');
-
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                throw new Error('Kamera API desteklenmiyor');
-            }
-
-            if (!mediaStream || !mediaStream.active) {
-                mediaStream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        facingMode: { ideal: 'environment' },
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 }
-                    },
-                    audio: false
-                });
-            }
-
-            if (video.srcObject !== mediaStream) {
-                video.srcObject = mediaStream;
-            }
-            await video.play();
-            placeholder.classList.add('hidden');
-            return video;
-        }
-
-        function stopCamera() {
-            isReadingOcr = false;
-            document.getElementById('aimGuide').classList.add('hidden');
-            if (mediaStream) {
-                mediaStream.getTracks().forEach(t => t.stop());
-                mediaStream = null;
-            }
-            const video = document.getElementById('cameraVideo');
-            video.srcObject = null;
-            document.getElementById('cameraPlaceholder').classList.remove('hidden');
-            setFeedback('Kamera kapatıldı.');
-        }
-
-        function extractBestNumericPart(ocrText, expectedMap) {
-            const rawMatches = String(ocrText || '').match(/\d{4,}/g) || [];
-            const candidates = rawMatches.map(m => onlyDigits(m)).filter(d => d.length >= 4);
-
-            if (candidates.length === 0) return '';
-
-            const expectedKeys = Object.keys(expectedMap || {});
-            for (const c of candidates) {
-                if (expectedKeys.includes(c)) return c;
-            }
-            for (const c of candidates) {
-                const partial = expectedKeys.find(exp => c.includes(exp) || exp.includes(c));
-                if (partial) return partial;
-            }
-
-            candidates.sort((a, b) => b.length - a.length);
-            return candidates[0];
-        }
-
-        async function readNumbersFromCamera(useFocusBand = true) {
-            if (isReadingOcr) return;
-            try {
-                isReadingOcr = true;
-                setFeedback('Kamera açılıyor...');
-                const video = await openRearCameraStream();
-                const guide = document.getElementById('aimGuide');
-                if (useFocusBand) guide.classList.remove('hidden');
-                else guide.classList.add('hidden');
-
-                await new Promise(r => setTimeout(r, 300));
-
-                const vw = video.videoWidth || 640;
-                const vh = video.videoHeight || 480;
-                const canvas = document.getElementById('captureCanvas');
-                const ctx = canvas.getContext('2d');
-
-                if (useFocusBand) {
-                    const cw = Math.floor(vw * 0.85);
-                    const ch = Math.floor(vh * 0.28);
-                    const cx = Math.floor((vw - cw) / 2);
-                    const cy = Math.floor((vh - ch) / 2);
-                    canvas.width = cw;
-                    canvas.height = ch;
-                    ctx.drawImage(video, cx, cy, cw, ch, 0, 0, cw, ch);
-                } else {
-                    canvas.width = vw;
-                    canvas.height = vh;
-                    ctx.drawImage(video, 0, 0, vw, vh);
-                }
-
-                if (!window.Tesseract) {
-                    setFeedback('Sayı okuma modülü yüklenemedi.', true);
-                    isReadingOcr = false;
-                    return;
-                }
-
-                setFeedback('Sayılar okunuyor...');
-                const { data } = await Tesseract.recognize(canvas, 'eng', {
-                    tessedit_char_whitelist: '0123456789'
-                });
-                const numericCode = extractBestNumericPart(data.text, getExpectedMap());
-
-                if (numericCode) {
-                    document.getElementById('partNoInput').value = numericCode;
-                    updateMatchPreview();
-                    setFeedback(`Sayı okundu: ${numericCode}`);
-                    if (navigator.vibrate) navigator.vibrate(70);
-                } else {
-                    setFeedback('Net sayı okunamadı, tekrar deneyin.', true);
-                }
-            } catch (e) {
-                setFeedback(`Okuma hatası: ${e.message || 'kamera izni gerekli'}`, true);
-            } finally {
-                isReadingOcr = false;
-            }
-        }
-
-        function addScannedPart() {
-            const partInput = document.getElementById('partNoInput');
-            const qtyInput = document.getElementById('qtyInput');
-            const kod = onlyDigits(partInput.value);
-            const adet = parseInt(qtyInput.value, 10) || 1;
-
-            if (!kod) {
-                setFeedback('Lütfen önce sayısal Parça No okutun veya girin.', true);
-                partInput.focus();
-                return;
-            }
-
-            const entry = {
-                kod,
-                adet: adet > 0 ? adet : 1,
-                zaman: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-            };
-
-            if (activeKabulRef && activeSession && activeSession.active) {
-                const newKey = 'ok_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-                activeKabulRef.child('okutulanlar').child(newKey).set(entry);
-            } else {
-                localAddedItems.unshift({ key: 'local_' + Date.now(), ...entry });
-                renderAddedList();
-            }
-
-            partInput.value = '';
-            qtyInput.value = '1';
-            updateMatchPreview();
-            setFeedback(`${kod} (${entry.adet} adet) eklendi ve sayıldı.`);
-            partInput.focus();
-        }
-    </script>
-</body>
-</html>
