@@ -25,7 +25,7 @@
                 <p id="sessionInfo" class="text-[11px] text-amber-300 font-semibold">İrsaliye oturumu bekleniyor...</p>
             </div>
         </div>
-        <button type="button" id="connStatus" onclick="initFirebaseConnection(true)" class="text-[11px] font-bold text-amber-300">
+        <button type="button" id="connStatus" onclick="runConnectionCheck()" class="text-[11px] font-bold text-amber-300 text-right">
             <i class="fa-solid fa-circle text-[8px]"></i> Bağlanıyor...
         </button>
     </header>
@@ -71,4 +71,27 @@
         </div>
 
         <!-- Ekle -->
-        <button type="button"
+        <button type="button" id="ekleBtn" onclick="addPartToSession()" class="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-black py-3.5 rounded-xl shadow-lg transition flex items-center justify-center gap-2 text-sm">
+            <i class="fa-solid fa-plus-circle text-base"></i> Ekle
+        </button>
+
+        <!-- Sayım Listesi -->
+        <section class="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-2.5">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                <h2 class="text-xs font-bold uppercase tracking-wider text-slate-200 flex items-center gap-1.5">
+                    <i class="fa-solid fa-list-check text-emerald-400"></i> Okutulan Parçalar
+                </h2>
+                <span id="countSummary" class="text-[11px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded-full">0 / 0</span>
+            </div>
+            <div id="scannedListBox" class="divide-y divide-slate-800 text-xs">
+                <p class="py-4 text-center text-slate-500">Henüz parça eklenmedi.</p>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyCkXKhtHVj3wImlSOI7vNfv4LAFLmrtqYc",
+            authDomain: "siparis-takip-4d2a7.firebaseapp.com",
+            databaseURL: "https://siparis-takip-4d2a7-default-rtdb.firebaseio.com",
+            projectId: "sip
