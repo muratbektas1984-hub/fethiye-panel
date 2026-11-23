@@ -123,7 +123,8 @@
         let localAddedItems = [];
         let mediaStream = null;
         let zxingReader = null;
-        let barcodeLoopActive = false;
+        let barcodeScanTimer = null;
+        let isScanningBarcode = false;
 
         activeKabulRef.on('value', (snap) => {
             activeSession = snap.val();
@@ -162,13 +163,22 @@
             const video = document.getElementById('cameraVideo');
             const placeholder = document.getElementById('cameraPlaceholder');
 
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                throw new Error('NO_MEDIA_DEVICES');
+            }
+
             if (mediaStream && mediaStream.active) {
                 placeholder.classList.add('hidden');
+                if (video.paused) await video.play();
                 return video;
             }
 
             const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: { ideal: 'environment' } },
+                video: {
+                    facingMode: { ideal: 'environment' },
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                },
                 audio: false
             });
             mediaStream = stream;
@@ -179,7 +189,11 @@
         }
 
         function stopCamera() {
-            barcodeLoopActive = false;
+            isScanningBarcode = false;
+            if (barcodeScanTimer) {
+                clearInterval(barcodeScanTimer);
+                barcodeScanTimer = null;
+            }
             if (zxingReader) {
                 try { zxingReader.reset(); } catch (_) {}
             }
@@ -195,6 +209,14 @@
 
         async function startBarcodeScan() {
             try {
+                if (barcodeScanTimer) {
+                    clearInterval(barcodeScanTimer);
+                    barcodeScanTimer = null;
+                }
+                if (zxingReader) {
+                    try { zxingReader.reset(); } catch (_) {}
+                }
+
                 setFeedback('Barkod kamerası açılıyor...');
                 const video = await ensureCameraStream();
 
@@ -203,32 +225,62 @@
                     return;
                 }
 
-                if (!zxingReader) {
-                    zxingReader = new ZXing.BrowserMultiFormatReader();
-                }
+                const hints = new Map();
+                hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+                zxingReader = new ZXing.BrowserMultiFormatReader(hints);
 
-                barcodeLoopActive = true;
-                setFeedback('Barkodu kameraya tutun...');
+                const canvas = document.getElementById('captureCanvas');
+                const ctx = canvas.getContext('2d');
 
-                zxingReader.decodeFromVideoElementContinuously(video, (result, err) => {
-                    if (!barcodeLoopActive) return;
-                    if (result && result.getText) {
-                        const code = result.getText().trim().toUpperCase();
-                        document.getElementById('partNoInput').value = code;
-                        barcodeLoopActive = false;
-                        try { zxingReader.reset(); } catch (_) {}
-                        setFeedback(`Barkod okundu: ${code}`);
-                        if (navigator.vibrate) navigator.vibrate(80);
+                isScanningBarcode = true;
+                setFeedback('Barkodu kameraya tutun (okunuyor)...');
+
+                barcodeScanTimer = setInterval(async () => {
+                    if (!isScanningBarcode || video.readyState < 2) return;
+
+                    const vw = video.videoWidth;
+                    const vh = video.videoHeight;
+                    if (!vw || !vh) return;
+
+                    canvas.width = vw;
+                    canvas.height = vh;
+                    ctx.drawImage(video, 0, 0, vw, vh);
+
+                    try {
+                        const luminanceSource = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+                        const binaryBitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminanceSource));
+                        const result = zxingReader.decodeBitmap(binaryBitmap);
+
+                        if (result && result.getText) {
+                            const code = result.getText().trim().toUpperCase();
+                            isScanningBarcode = false;
+                            clearInterval(barcodeScanTimer);
+                            barcodeScanTimer = null;
+
+                            document.getElementById('partNoInput').value = code;
+                            setFeedback(`Barkod okundu: ${code}`);
+                            if (navigator.vibrate) navigator.vibrate(80);
+                        }
+                    } catch (_) {
+                        // Henüz karede barkod bulunamadı; bir sonraki aralıkta dener
                     }
-                });
+                }, 220);
             } catch (e) {
-                setFeedback('Kamera erişimi sağlanamadı.', true);
+                if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+                    setFeedback('Kamera için HTTPS bağlantısı gereklidir.', true);
+                } else {
+                    setFeedback('Kamera açılamadı, izinleri kontrol edin.', true);
+                }
             }
         }
 
         async function scanTextFromCamera() {
             try {
-                barcodeLoopActive = false;
+                isScanningBarcode = false;
+                if (barcodeScanTimer) {
+                    clearInterval(barcodeScanTimer);
+                    barcodeScanTimer = null;
+                }
                 if (zxingReader) {
                     try { zxingReader.reset(); } catch (_) {}
                 }
