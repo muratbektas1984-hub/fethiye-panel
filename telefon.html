@@ -185,4 +185,250 @@
             });
             mediaStream = stream;
             video.srcObject = stream;
-            await
+            await video.play();
+            placeholder.classList.add('hidden');
+            return video;
+        }
+
+        function stopCamera() {
+            isScanningBarcode = false;
+            if (barcodeScanTimer) {
+                clearInterval(barcodeScanTimer);
+                barcodeScanTimer = null;
+            }
+            if (zxingBrowserReader) {
+                try { zxingBrowserReader.reset(); } catch (_) {}
+            }
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(t => t.stop());
+                mediaStream = null;
+            }
+            const video = document.getElementById('cameraVideo');
+            video.srcObject = null;
+            document.getElementById('cameraPlaceholder').classList.remove('hidden');
+            setFeedback('Kamera kapatıldı.');
+        }
+
+        function setupBarcodeEngines() {
+            if ('BarcodeDetector' in window && !nativeBarcodeDetector) {
+                try {
+                    nativeBarcodeDetector = new BarcodeDetector({
+                        formats: ['code_128', 'code_39', 'code_93', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'itf', 'qr_code', 'data_matrix']
+                    });
+                } catch (_) {
+                    nativeBarcodeDetector = null;
+                }
+            }
+
+            if (window.ZXing) {
+                const hints = new Map();
+                hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+                if (!zxingBrowserReader) {
+                    zxingBrowserReader = new ZXing.BrowserMultiFormatReader(hints);
+                }
+                if (!zxingCoreReader) {
+                    zxingCoreReader = new ZXing.MultiFormatReader();
+                    zxingCoreReader.setHints(hints);
+                }
+            }
+        }
+
+        function onBarcodeDetected(rawText) {
+            const code = String(rawText || '').trim().toUpperCase();
+            if (!code) return;
+            isScanningBarcode = false;
+            if (barcodeScanTimer) {
+                clearInterval(barcodeScanTimer);
+                barcodeScanTimer = null;
+            }
+            document.getElementById('partNoInput').value = code;
+            setFeedback(`Barkod okundu: ${code}`);
+            if (navigator.vibrate) navigator.vibrate(80);
+        }
+
+        async function decodeCanvasFrame(canvas) {
+            if (nativeBarcodeDetector) {
+                try {
+                    const barcodes = await nativeBarcodeDetector.detect(canvas);
+                    if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
+                        return barcodes[0].rawValue;
+                    }
+                } catch (_) {}
+            }
+
+            if (zxingBrowserReader && typeof zxingBrowserReader.decodeFromCanvas === 'function') {
+                try {
+                    const res = await zxingBrowserReader.decodeFromCanvas(canvas);
+                    if (res && typeof res.getText === 'function') {
+                        return res.getText();
+                    }
+                } catch (_) {}
+            }
+
+            if (zxingCoreReader && window.ZXing) {
+                try {
+                    const luminanceSource = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+                    const binaryBitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminanceSource));
+                    const res = zxingCoreReader.decode(binaryBitmap);
+                    if (res && typeof res.getText === 'function') {
+                        return res.getText();
+                    }
+                } catch (_) {}
+            }
+
+            return '';
+        }
+
+        async function startBarcodeScan() {
+            try {
+                if (barcodeScanTimer) {
+                    clearInterval(barcodeScanTimer);
+                    barcodeScanTimer = null;
+                }
+
+                setFeedback('Barkod kamerası açılıyor...');
+                const video = await ensureCameraStream();
+                setupBarcodeEngines();
+
+                if (!nativeBarcodeDetector && !window.ZXing) {
+                    setFeedback('Barkod okuyucu yüklenemedi.', true);
+                    return;
+                }
+
+                const canvas = document.getElementById('captureCanvas');
+                const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+                isScanningBarcode = true;
+                setFeedback('Barkodu kameraya tutun (okunuyor)...');
+
+                barcodeScanTimer = setInterval(async () => {
+                    if (!isScanningBarcode || video.readyState < 2) return;
+
+                    const vw = video.videoWidth;
+                    const vh = video.videoHeight;
+                    if (!vw || !vh) return;
+
+                    canvas.width = vw;
+                    canvas.height = vh;
+                    ctx.drawImage(video, 0, 0, vw, vh);
+
+                    const foundCode = await decodeCanvasFrame(canvas);
+                    if (foundCode && isScanningBarcode) {
+                        onBarcodeDetected(foundCode);
+                    }
+                }, 250);
+            } catch (e) {
+                if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+                    setFeedback('Kamera için HTTPS bağlantısı gereklidir.', true);
+                } else {
+                    setFeedback(`Kamera açılamadı: ${e.message || 'izin hatası'}`, true);
+                }
+            }
+        }
+
+        async function scanTextFromCamera() {
+            try {
+                isScanningBarcode = false;
+                if (barcodeScanTimer) {
+                    clearInterval(barcodeScanTimer);
+                    barcodeScanTimer = null;
+                }
+
+                setFeedback('Kamera hazırlanıyor...');
+                const video = await ensureCameraStream();
+                await new Promise(r => setTimeout(r, 250));
+
+                const canvas = document.getElementById('captureCanvas');
+                canvas.width = video.videoWidth || 640;
+                canvas.height = video.videoHeight || 480;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                if (!window.Tesseract) {
+                    setFeedback('Metin okuma modülü yüklenemedi.', true);
+                    return;
+                }
+
+                setFeedback('Metin okunuyor...');
+                const { data } = await Tesseract.recognize(canvas, 'eng');
+                const cleanedLines = (data.text || '')
+                    .split(/\r?\n/)
+                    .map(l => l.trim())
+                    .filter(Boolean);
+
+                const candidate = cleanedLines.find(l => /[A-Z0-9]{4,}/i.test(l)) || '';
+                const partCode = candidate.replace(/[^A-Z0-9\s-]/gi, '').trim().toUpperCase();
+
+                if (partCode) {
+                    document.getElementById('partNoInput').value = partCode;
+                    setFeedback(`Metin okundu: ${partCode}`);
+                } else {
+                    setFeedback('Net parça metni algılanamadı, tekrar deneyin.', true);
+                }
+            } catch (e) {
+                setFeedback('Metin okuma sırasında hata oluştu.', true);
+            }
+        }
+
+        function addScannedPart() {
+            const partInput = document.getElementById('partNoInput');
+            const qtyInput = document.getElementById('qtyInput');
+
+            const kod = partInput.value.trim().toUpperCase();
+            const adet = parseInt(qtyInput.value, 10) || 1;
+
+            if (!kod) {
+                setFeedback('Lütfen önce Parça No girin veya okutun.', true);
+                partInput.focus();
+                return;
+            }
+
+            const entry = {
+                kod,
+                adet: adet > 0 ? adet : 1,
+                zaman: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+            };
+
+            if (activeSession && activeSession.active) {
+                const newKey = 'ok_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+                activeKabulRef.child('okutulanlar').child(newKey).set(entry);
+            } else {
+                localAddedItems.unshift({
+                    key: 'local_' + Date.now(),
+                    ...entry
+                });
+                renderAddedList();
+            }
+
+            partInput.value = '';
+            qtyInput.value = '1';
+            setFeedback(`${kod} (${entry.adet} adet) eklendi.`);
+            partInput.focus();
+        }
+
+        function renderAddedList() {
+            const container = document.getElementById('addedPartsList');
+            const badge = document.getElementById('addedCountBadge');
+            badge.innerText = `${localAddedItems.length} kayıt`;
+
+            if (localAddedItems.length === 0) {
+                container.innerHTML = '<p class="py-4 text-center text-slate-500">Henüz parça eklenmedi.</p>';
+                return;
+            }
+
+            container.innerHTML = localAddedItems.map((item, idx) => `
+                <div class="py-2.5 flex items-center justify-between gap-2">
+                    <div class="min-w-0">
+                        <span class="text-slate-400 font-mono mr-1.5">${idx + 1}.</span>
+                        <span class="font-mono font-bold text-emerald-400 break-all">${item.kod}</span>
+                        <span class="block text-[10px] text-slate-400">${item.zaman || ''}</span>
+                    </div>
+                    <span class="bg-blue-950 text-blue-200 border border-blue-800 font-bold px-2.5 py-1 rounded-lg shrink-0">
+                        ${item.adet} Adet
+                    </span>
+                </div>
+            `).join('');
+        }
+    </script>
+</body>
+</html>
