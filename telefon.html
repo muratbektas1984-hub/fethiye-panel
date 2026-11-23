@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Kutay Fethiye - Telefon Tarama</title>
   <script src="https://unpkg.com/@zxing/library@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <style>
     * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
     body { margin: 0; background: #0f172a; color: #f8fafc; display: flex; flex-direction: column; min-height: 100vh; }
@@ -12,17 +13,17 @@
     .badge { padding: 3px 8px; border-radius: 999px; font-weight: 600; font-size: 12px; }
     .badge-ok { background: #14532d; color: #86efac; }
     .badge-wait { background: #78350f; color: #fde68a; }
-    .camera-box { position: relative; width: 100%; height: 42vh; min-height: 240px; background: #000; overflow: hidden; }
+    .camera-box { position: relative; width: 100%; height: 40vh; min-height: 230px; background: #000; overflow: hidden; }
     video { width: 100%; height: 100%; object-fit: cover; }
-    .scan-line { position: absolute; left: 10%; right: 10%; top: 50%; height: 2px; background: #ef4444; box-shadow: 0 0 10px #ef4444; transform: translateY(-50%); pointer-events: none; }
-    .controls { padding: 14px; display: flex; flex-direction: column; gap: 12px; flex: 1; }
-    .btn-scan { width: 100%; padding: 16px; font-size: 18px; font-weight: 700; border: none; border-radius: 12px; background: #2563eb; color: #fff; cursor: pointer; }
-    .btn-scan:active { background: #1d4ed8; }
-    .row { display: grid; grid-template-columns: 1.4fr 0.8fr; gap: 10px; }
+    .scan-line { position: absolute; left: 6%; right: 6%; top: 50%; height: 3px; background: #ef4444; box-shadow: 0 0 12px #ef4444; transform: translateY(-50%); pointer-events: none; }
+    .controls { padding: 14px; display: flex; flex-direction: column; gap: 11px; flex: 1; }
+    .btn-row { display: grid; grid-template-columns: 1.3fr 1fr; gap: 10px; }
+    .btn-scan { width: 100%; padding: 15px; font-size: 16px; font-weight: 700; border: none; border-radius: 12px; background: #2563eb; color: #fff; cursor: pointer; }
+    .btn-ocr { width: 100%; padding: 15px; font-size: 15px; font-weight: 700; border: none; border-radius: 12px; background: #475569; color: #fff; cursor: pointer; }
+    .row { display: grid; grid-template-columns: 1.5fr 0.8fr; gap: 10px; }
     label { display: block; font-size: 12px; color: #94a3b8; margin-bottom: 4px; }
     input { width: 100%; padding: 12px; font-size: 16px; border-radius: 10px; border: 1px solid #475569; background: #1e293b; color: #fff; }
     .btn-add { width: 100%; padding: 16px; font-size: 18px; font-weight: 700; border: none; border-radius: 12px; background: #16a34a; color: #fff; cursor: pointer; }
-    .btn-add:active { background: #15803d; }
     .status { font-size: 13px; text-align: center; min-height: 20px; color: #cbd5e1; }
     .last-item { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 10px 12px; font-size: 13px; color: #e2e8f0; }
   </style>
@@ -39,12 +40,15 @@
   </div>
 
   <div class="controls">
-    <button id="btnScan" class="btn-scan" type="button">BARKOT OKU</button>
+    <div class="btn-row">
+      <button id="btnScan" class="btn-scan" type="button">BARKOT OKU</button>
+      <button id="btnOcr" class="btn-ocr" type="button">KOD METNİ OKU</button>
+    </div>
 
     <div class="row">
       <div>
         <label for="barcodeInput">Okunan Kod / Barkod</label>
-        <input id="barcodeInput" type="text" placeholder="Kod okutun veya yazın" autocomplete="off" />
+        <input id="barcodeInput" type="text" placeholder="Örn: 21 01 074 90R" autocomplete="off" />
       </div>
       <div>
         <label for="qtyInput">Adet</label>
@@ -53,17 +57,17 @@
     </div>
 
     <button id="btnAdd" class="btn-add" type="button">EKLE</button>
-    <div id="statusMsg" class="status">Kamera hazır. Barkot Oku butonuna basın.</div>
+    <div id="statusMsg" class="status">Kamera hazır. Barkot Oku veya Kod Metni Oku'ya basın.</div>
     <div id="lastItem" class="last-item">Son eklenen: Henüz parça eklenmedi.</div>
   </div>
 
   <script>
-    // Kendi Firebase Realtime Database bilgilerinle güncelle:
     const DB_URL = "https://siparis-takip-4d2a7-default-rtdb.firebaseio.com";
     const ACTIVE_PATH = "kutay_fethiye_aktif_kabul";
 
     const videoEl = document.getElementById("video");
     const btnScan = document.getElementById("btnScan");
+    const btnOcr = document.getElementById("btnOcr");
     const btnAdd = document.getElementById("btnAdd");
     const barcodeInput = document.getElementById("barcodeInput");
     const qtyInput = document.getElementById("qtyInput");
@@ -76,18 +80,23 @@
     let scanning = false;
     let scanTimer = null;
     let zxingReader = null;
-    let activeSession = null;
 
     async function startCamera() {
       stopCamera();
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" } },
+        const constraints = {
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+            advanced: [{ focusMode: "continuous" }]
+          },
           audio: false
-        });
+        };
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
         videoEl.srcObject = stream;
         await videoEl.play();
-        statusMsg.textContent = "Kamera açık. Barkot Oku butonuna basın.";
+        statusMsg.textContent = "Kamera hazır. Kodu kırmızı çizgiye hizalayın.";
       } catch (err) {
         statusMsg.textContent = "Kamera açılamadı: " + err.message;
       }
@@ -108,38 +117,53 @@
       }
     }
 
+    function captureCenterCrop(cropHeightRatio = 0.45) {
+      const vw = videoEl.videoWidth;
+      const vh = videoEl.videoHeight;
+      if (!vw || !vh) return null;
+
+      const cropW = vw;
+      const cropH = Math.max(120, Math.floor(vh * cropHeightRatio));
+      const sx = 0;
+      const sy = Math.floor((vh - cropH) / 2);
+
+      const canvas = document.createElement("canvas");
+      canvas.width = cropW;
+      canvas.height = cropH;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      ctx.drawImage(videoEl, sx, sy, cropW, cropH, 0, 0, cropW, cropH);
+      return canvas;
+    }
+
     async function readBarcodeOnce() {
       if (!stream || videoEl.readyState < 2) {
         await startCamera();
       }
       if (scanning) return;
       scanning = true;
-      statusMsg.textContent = "Barkod taranıyor... Barkodu kırmızı çizgiye tutun.";
 
       const hasNativeDetector = "BarcodeDetector" in window;
       const detector = hasNativeDetector ? new window.BarcodeDetector() : null;
-      if (!hasNativeDetector && window.ZXing) {
+      if (window.ZXing && !zxingReader) {
         zxingReader = new window.ZXing.BrowserMultiFormatReader();
       }
 
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
-
+      let attempts = 0;
       return new Promise((resolve) => {
-        const deadline = Date.now() + 12000;
+        const deadline = Date.now() + 15000;
         scanTimer = setInterval(async () => {
+          attempts++;
           if (Date.now() > deadline) {
             clearInterval(scanTimer);
             scanning = false;
-            statusMsg.textContent = "Barkod algılanamadı, tekrar Barkot Oku'ya basın.";
+            statusMsg.textContent = "Barkod okunamadı. 'Kod Metni Oku' butonunu deneyin.";
             resolve(null);
             return;
           }
-          if (videoEl.videoWidth === 0 || videoEl.videoHeight === 0) return;
 
-          canvas.width = videoEl.videoWidth;
-          canvas.height = videoEl.videoHeight;
-          ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+          const canvas = captureCenterCrop(0.5);
+          if (!canvas) return;
+          statusMsg.textContent = `Barkod aranıyor... (${attempts})`;
 
           try {
             if (detector) {
@@ -150,8 +174,9 @@
                 resolve(codes[0].rawValue.trim());
                 return;
               }
-            } else if (zxingReader) {
-              const res = await zxingReader.decodeFromImageUrl(canvas.toDataURL("image/png")).catch(() => null);
+            }
+            if (zxingReader) {
+              const res = await zxingReader.decodeFromCanvas(canvas).catch(() => null);
               if (res && res.getText()) {
                 clearInterval(scanTimer);
                 scanning = false;
@@ -160,8 +185,50 @@
               }
             }
           } catch (_) {}
-        }, 250);
+        }, 300);
       });
+    }
+
+    async function readPartCodeText() {
+      if (!stream || videoEl.readyState < 2) {
+        await startCamera();
+      }
+      if (scanning) return;
+      scanning = true;
+      statusMsg.textContent = "Parça kodu metni okunuyor...";
+
+      try {
+        const canvas = captureCenterCrop(0.45);
+        if (!canvas) {
+          statusMsg.textContent = "Kamera görüntüsü alınamadı.";
+          return;
+        }
+        const { data } = await Tesseract.recognize(canvas, "eng");
+        const lines = (data.text || "")
+          .split(/\r?\n/)
+          .map(l => l.trim())
+          .filter(Boolean);
+
+        // Renault / OEM parça kodu kalıplarına uygun satırı önceliklendir (ör: 21 01 074 90R)
+        const codeCandidate =
+          lines.find(l => /\d{2}\s?\d{2}\s?\d{3}\s?\d{2}[A-Z0-9]?/i.test(l)) ||
+          lines.find(l => /[A-Z0-9]{2,}[\s-]?[A-Z0-9]{2,}/i.test(l) && !/RENAULT|GROUP|GENUINE|PARTS|ROMANIA|ORIGEN/i.test(l)) ||
+          lines[0] ||
+          "";
+
+        const cleaned = codeCandidate.replace(/[^A-Z0-9\s-]/gi, " ").replace(/\s+/g, " ").trim();
+        if (cleaned) {
+          barcodeInput.value = cleaned;
+          qtyInput.focus();
+          statusMsg.textContent = `Metinden okunan kod: ${cleaned} — Adedi girip EKLE'ye basın.`;
+        } else {
+          statusMsg.textContent = "Kod metni net okunamadı, kırmızı çizgiyi kodun üzerine getirin.";
+        }
+      } catch (err) {
+        statusMsg.textContent = "Metin okuma hatası: " + err.message;
+      } finally {
+        scanning = false;
+      }
     }
 
     async function pollActiveSession() {
@@ -169,12 +236,10 @@
         const r = await fetch(`${DB_URL}/${ACTIVE_PATH}.json`);
         const data = await r.json();
         if (data && data.active) {
-          activeSession = data;
           sessionInfoEl.textContent = `İrsaliye: ${data.irsaliyeNo || "Belirtilmedi"}`;
           connBadgeEl.textContent = "Oturum Aktif";
           connBadgeEl.className = "badge badge-ok";
         } else {
-          activeSession = null;
           sessionInfoEl.textContent = "Aktif kabul oturumu yok";
           connBadgeEl.textContent = "Bekleniyor";
           connBadgeEl.className = "badge badge-wait";
@@ -191,15 +256,17 @@
         barcodeInput.value = code;
         qtyInput.value = qtyInput.value || "1";
         qtyInput.focus();
-        statusMsg.textContent = `Okunan kod: ${code} — Adedi girip EKLE'ye basın.`;
+        statusMsg.textContent = `Okunan barkod: ${code} — Adedi girip EKLE'ye basın.`;
       }
     });
+
+    btnOcr.addEventListener("click", readPartCodeText);
 
     btnAdd.addEventListener("click", async () => {
       const code = barcodeInput.value.trim();
       const qty = parseInt(qtyInput.value, 10) || 1;
       if (!code) {
-        statusMsg.textContent = "Önce barkod okutun veya kod girin.";
+        statusMsg.textContent = "Önce barkod/kod okutun veya yazın.";
         return;
       }
 
