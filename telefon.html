@@ -112,12 +112,307 @@
         let scanningActive = false;
 
         function cleanCode(val) {
-            return String(val || '')
-                .toUpperCase()
-                .replace(/[^A-Z0-9]/g, '')
-                .replace(/^P+/, '')
-                .trim();
+            let s = String(val || '').trim().toUpperCase();
+            s = s.replace(/^P[\s\-:\/]*/i, '');
+            s = s.replace(/[^A-Z0-9]/g, '');
+            s = s.replace(/^P+/, '');
+            return s.trim();
         }
 
         function setStatusMsg(msg, isErr = false) {
-            const el = document.getElement
+            const el = document.getElementById('barcodeStatusText');
+            if (!el) return;
+            el.className = isErr ? 'text-rose-400 font-bold truncate' : 'text-emerald-300 font-semibold truncate';
+            el.innerText = msg;
+        }
+
+        function getExpectedTotals() {
+            const map = {};
+            if (currentSession && currentSession.beklenen) {
+                Object.entries(currentSession.beklenen).forEach(([k, v]) => {
+                    const c = cleanCode(k);
+                    if (c) map[c] = (map[c] || 0) + (parseInt(v, 10) || 1);
+                });
+            }
+            return map;
+        }
+
+        function getScannedTotals() {
+            const map = {};
+            scannedItems.forEach(item => {
+                const c = cleanCode(item.kod);
+                if (c) map[c] = (map[c] || 0) + (parseInt(item.adet, 10) || 1);
+            });
+            return map;
+        }
+
+        function refreshMatchBadge() {
+            const badge = document.getElementById('matchBadge');
+            const c = cleanCode(document.getElementById('parcaNoInput').value);
+
+            if (!c) {
+                badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300';
+                badge.innerText = 'Eşleşme bekleniyor';
+                return;
+            }
+
+            const expMap = getExpectedTotals();
+            const scMap = getScannedTotals();
+            const expQty = expMap[c];
+            const scQty = scMap[c] || 0;
+
+            if (typeof expQty === 'number') {
+                badge.className = scQty < expQty
+                    ? 'text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700'
+                    : 'text-[10px] font-bold px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-700';
+                badge.innerText = `İrsaliyede var (${scQty}/${expQty})`;
+            } else if (Object.keys(expMap).length > 0) {
+                badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-700';
+                badge.innerText = 'İrsaliye listesinde yok';
+            } else {
+                badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-700';
+                badge.innerText = `Okunan: ${scQty}`;
+            }
+        }
+
+        function renderList() {
+            const box = document.getElementById('scannedListBox');
+            const summary = document.getElementById('countSummary');
+            const expMap = getExpectedTotals();
+            const scMap = getScannedTotals();
+
+            const totalExp = Object.values(expMap).reduce((a, b) => a + b, 0);
+            const totalSc = Object.values(scMap).reduce((a, b) => a + b, 0);
+            summary.innerText = totalExp > 0 ? `${totalSc} / ${totalExp} Adet` : `${totalSc} Adet`;
+
+            const keys = Array.from(new Set([...Object.keys(expMap), ...Object.keys(scMap)]));
+            if (!keys.length) {
+                box.innerHTML = '<p class="py-4 text-center text-slate-500">Henüz parça eklenmedi.</p>';
+                refreshMatchBadge();
+                return;
+            }
+
+            box.innerHTML = keys.map((code, idx) => {
+                const exp = expMap[code];
+                const sc = scMap[code] || 0;
+                let tag = `<span class="bg-blue-950 text-blue-200 border border-blue-800 font-bold px-2 py-1 rounded-lg">${sc} Okundu</span>`;
+
+                if (typeof exp === 'number') {
+                    if (sc === exp) {
+                        tag = `<span class="bg-emerald-950 text-emerald-300 border border-emerald-700 font-bold px-2 py-1 rounded-lg">Tamam (${sc}/${exp})</span>`;
+                    } else if (sc < exp) {
+                        tag = `<span class="bg-amber-950 text-amber-300 border border-amber-700 font-bold px-2 py-1 rounded-lg">Eksik (${sc}/${exp})</span>`;
+                    } else {
+                        tag = `<span class="bg-rose-950 text-rose-300 border border-rose-700 font-bold px-2 py-1 rounded-lg">Fazla (${sc}/${exp})</span>`;
+                    }
+                } else {
+                    tag = `<span class="bg-purple-950 text-purple-200 border border-purple-700 font-bold px-2 py-1 rounded-lg">Listede Yok (${sc})</span>`;
+                }
+
+                return `
+                    <div class="py-2.5 flex items-center justify-between gap-2">
+                        <div class="min-w-0">
+                            <span class="text-slate-400 font-mono mr-1.5">${idx + 1}.</span>
+                            <span class="font-mono font-bold text-emerald-400 break-all">${code}</span>
+                        </div>
+                        ${tag}
+                    </div>
+                `;
+            }).join('');
+
+            refreshMatchBadge();
+        }
+
+        try {
+            if (window.firebase && !firebase.apps.length) {
+                firebase.initializeApp(firebaseConfig);
+            }
+            if (window.firebase) {
+                const db = firebase.database();
+                kabulRef = db.ref('kutay_fethiye_aktif_kabul');
+
+                db.ref('.info/connected').on('value', (snap) => {
+                    const connEl = document.getElementById('connStatus');
+                    if (snap.val() === true) {
+                        connEl.className = 'text-[11px] font-bold text-emerald-400';
+                        connEl.innerHTML = '<i class="fa-solid fa-circle text-[8px]"></i> Bağlı';
+                    } else {
+                        connEl.className = 'text-[11px] font-bold text-rose-400';
+                        connEl.innerHTML = '<i class="fa-solid fa-circle text-[8px]"></i> Bağlantı Yok';
+                    }
+                });
+
+                kabulRef.on('value', (snap) => {
+                    currentSession = snap.val();
+                    const infoEl = document.getElementById('sessionInfo');
+                    if (currentSession && currentSession.active) {
+                        infoEl.className = 'text-[11px] text-emerald-400 font-bold';
+                        infoEl.innerText = `Aktif İrsaliye: ${currentSession.irsaliyeNo || '-'}`;
+                        scannedItems = currentSession.okutulanlar
+                            ? Object.entries(currentSession.okutulanlar).map(([k, v]) => ({
+                                key: k,
+                                kod: cleanCode(v.kod),
+                                adet: parseInt(v.adet, 10) || 1,
+                                zaman: v.zaman || ''
+                            })).reverse()
+                            : [];
+                    } else {
+                        infoEl.className = 'text-[11px] text-amber-300 font-semibold';
+                        infoEl.innerText = 'İrsaliye oturumu bekleniyor...';
+                    }
+                    renderList();
+                });
+            }
+        } catch (e) {}
+
+        function onBarcodeDetected(rawText) {
+            const code = cleanCode(rawText);
+            if (!code) return;
+            document.getElementById('parcaNoInput').value = code;
+            refreshMatchBadge();
+            setStatusMsg(`Ham: ${rawText} → Parça No: ${code}`);
+            if (navigator.vibrate) navigator.vibrate(80);
+            stopBarcodeScan();
+        }
+
+        async function startBarcodeScan() {
+            if (scanningActive) {
+                stopBarcodeScan();
+            }
+
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                setStatusMsg('Tarayıcı kamera erişimini desteklemiyor.', true);
+                return;
+            }
+
+            try {
+                scanningActive = true;
+                document.getElementById('barcodeIdleView').classList.add('hidden');
+                document.getElementById('barcodeLaserBox').classList.remove('hidden');
+                setStatusMsg('Kamera açılıyor...');
+
+                const video = document.getElementById('barcodeVideo');
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: { ideal: 'environment' },
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    },
+                    audio: false
+                });
+
+                video.srcObject = mediaStream;
+                await video.play();
+
+                if ('BarcodeDetector' in window) {
+                    try {
+                        nativeDetector = new BarcodeDetector({
+                            formats: ['code_128', 'code_39', 'code_93', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'qr_code', 'data_matrix', 'itf']
+                        });
+                    } catch (e) {
+                        nativeDetector = null;
+                    }
+                }
+
+                if (window.ZXing && window.ZXing.BrowserMultiFormatReader) {
+                    zxingScanner = new ZXing.BrowserMultiFormatReader();
+                }
+
+                setStatusMsg('Barkodu çerçeveye tutun...');
+
+                const tempCanvas = document.createElement('canvas');
+                const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+
+                pollTimer = setInterval(async () => {
+                    if (!scanningActive || video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
+
+                    if (nativeDetector) {
+                        try {
+                            const found = await nativeDetector.detect(video);
+                            if (found && found.length > 0 && found[0].rawValue) {
+                                onBarcodeDetected(found[0].rawValue);
+                                return;
+                            }
+                        } catch (e) {}
+                    }
+
+                    if (zxingScanner) {
+                        try {
+                            tempCanvas.width = video.videoWidth;
+                            tempCanvas.height = video.videoHeight;
+                            tempCtx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
+                            const imgUrl = tempCanvas.toDataURL('image/jpeg', 0.85);
+                            const decoded = await zxingScanner.decodeFromImageUrl(imgUrl);
+                            if (decoded && decoded.getText) {
+                                onBarcodeDetected(decoded.getText());
+                                return;
+                            }
+                        } catch (e) {}
+                    }
+                }, 250);
+            } catch (err) {
+                scanningActive = false;
+                document.getElementById('barcodeLaserBox').classList.add('hidden');
+                document.getElementById('barcodeIdleView').classList.remove('hidden');
+                setStatusMsg(`Kamera hatası: ${err.message || 'izin gerekli'}`, true);
+            }
+        }
+
+        function stopBarcodeScan() {
+            scanningActive = false;
+            if (pollTimer) {
+                clearInterval(pollTimer);
+                pollTimer = null;
+            }
+            if (zxingScanner) {
+                try { zxingScanner.reset(); } catch (e) {}
+                zxingScanner = null;
+            }
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(t => t.stop());
+                mediaStream = null;
+            }
+            const video = document.getElementById('barcodeVideo');
+            if (video) {
+                video.srcObject = null;
+            }
+            document.getElementById('barcodeLaserBox').classList.add('hidden');
+            document.getElementById('barcodeIdleView').classList.remove('hidden');
+            setStatusMsg('Kamera kapalı');
+        }
+
+        function addPartToSession() {
+            const pInput = document.getElementById('parcaNoInput');
+            const qInput = document.getElementById('adetInput');
+            const kod = cleanCode(pInput.value);
+            const adet = parseInt(qInput.value, 10) || 1;
+
+            if (!kod) {
+                setStatusMsg('Lütfen barkod okutun veya Parça No girin.', true);
+                pInput.focus();
+                return;
+            }
+
+            const item = {
+                kod,
+                adet: adet > 0 ? adet : 1,
+                zaman: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+            };
+
+            if (kabulRef && currentSession && currentSession.active) {
+                const key = 'ok_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+                kabulRef.child('okutulanlar').child(key).set(item);
+            } else {
+                scannedItems.unshift({ key: 'loc_' + Date.now(), ...item });
+                renderList();
+            }
+
+            pInput.value = '';
+            qInput.value = '1';
+            refreshMatchBadge();
+            setStatusMsg(`${kod} (${item.adet} adet) eklendi.`);
+            pInput.focus();
+        }
+    </script>
+</body>
+</html>
