@@ -1,307 +1,333 @@
 <!DOCTYPE html>
 <html lang="tr">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Kutay Fethiye - Telefon Tarama</title>
-  <script src="https://unpkg.com/@zxing/library@latest"></script>
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <style>
-    * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
-    body { margin: 0; background: #0f172a; color: #f8fafc; display: flex; flex-direction: column; min-height: 100vh; }
-    .topbar { padding: 10px 14px; background: #1e293b; display: flex; justify-content: space-between; align-items: center; font-size: 13px; border-bottom: 1px solid #334155; }
-    .badge { padding: 3px 8px; border-radius: 999px; font-weight: 600; font-size: 12px; }
-    .badge-ok { background: #14532d; color: #86efac; }
-    .badge-wait { background: #78350f; color: #fde68a; }
-    .camera-box { position: relative; width: 100%; height: 40vh; min-height: 230px; background: #000; overflow: hidden; }
-    video { width: 100%; height: 100%; object-fit: cover; }
-    .scan-line { position: absolute; left: 6%; right: 6%; top: 50%; height: 3px; background: #ef4444; box-shadow: 0 0 12px #ef4444; transform: translateY(-50%); pointer-events: none; }
-    .controls { padding: 14px; display: flex; flex-direction: column; gap: 11px; flex: 1; }
-    .btn-row { display: grid; grid-template-columns: 1.3fr 1fr; gap: 10px; }
-    .btn-scan { width: 100%; padding: 15px; font-size: 16px; font-weight: 700; border: none; border-radius: 12px; background: #2563eb; color: #fff; cursor: pointer; }
-    .btn-ocr { width: 100%; padding: 15px; font-size: 15px; font-weight: 700; border: none; border-radius: 12px; background: #475569; color: #fff; cursor: pointer; }
-    .row { display: grid; grid-template-columns: 1.5fr 0.8fr; gap: 10px; }
-    label { display: block; font-size: 12px; color: #94a3b8; margin-bottom: 4px; }
-    input { width: 100%; padding: 12px; font-size: 16px; border-radius: 10px; border: 1px solid #475569; background: #1e293b; color: #fff; }
-    .btn-add { width: 100%; padding: 16px; font-size: 18px; font-weight: 700; border: none; border-radius: 12px; background: #16a34a; color: #fff; cursor: pointer; }
-    .status { font-size: 13px; text-align: center; min-height: 20px; color: #cbd5e1; }
-    .last-item { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 10px 12px; font-size: 13px; color: #e2e8f0; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Kutay Fethiye - Telefon Sayım</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+
+    <!-- Barkod & Metin (OCR) Kütüphaneleri -->
+    <script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+    <style>
+        body {
+            touch-action: manipulation;
+        }
+    </style>
 </head>
-<body>
-  <div class="topbar">
-    <span id="sessionInfo">Oturum bekleniyor...</span>
-    <span id="connBadge" class="badge badge-wait">Bekleniyor</span>
-  </div>
+<body class="bg-slate-950 text-white min-h-screen flex flex-col">
 
-  <div class="camera-box">
-    <video id="video" playsinline muted autoplay></video>
-    <div class="scan-line"></div>
-  </div>
+    <!-- Üst Başlık ve Oturum Durumu -->
+    <header class="bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center justify-between sticky top-0 z-20">
+        <div class="flex items-center gap-2.5">
+            <div class="bg-blue-600 p-2 rounded-lg">
+                <i class="fa-solid fa-mobile-screen-button text-sm text-white"></i>
+            </div>
+            <div>
+                <h1 class="text-sm font-bold leading-tight">Kutay Fethiye - Telefon</h1>
+                <p id="sessionInfo" class="text-[11px] text-amber-300 font-semibold">İrsaliye oturumu bekleniyor...</p>
+            </div>
+        </div>
+        <span id="connStatus" class="text-[11px] font-bold text-emerald-400">
+            <i class="fa-solid fa-circle text-[8px]"></i> Bağlanıyor
+        </span>
+    </header>
 
-  <div class="controls">
-    <div class="btn-row">
-      <button id="btnScan" class="btn-scan" type="button">BARKOT OKU</button>
-      <button id="btnOcr" class="btn-ocr" type="button">KOD METNİ OKU</button>
-    </div>
+    <main class="flex-1 max-w-md w-full mx-auto p-3 space-y-3 pb-10">
 
-    <div class="row">
-      <div>
-        <label for="barcodeInput">Okunan Kod / Barkod</label>
-        <input id="barcodeInput" type="text" placeholder="Örn: 21 01 074 90R" autocomplete="off" />
-      </div>
-      <div>
-        <label for="qtyInput">Adet</label>
-        <input id="qtyInput" type="number" min="1" value="1" />
-      </div>
-    </div>
+        <!-- 1. Kamera Açılış Alanı -->
+        <section class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
+            <div class="relative w-full h-56 bg-black flex items-center justify-center">
+                <video id="cameraVideo" class="w-full h-full object-cover" playsinline autoplay muted></video>
+                <div id="cameraPlaceholder" class="absolute inset-0 flex flex-col items-center justify-center text-slate-400 text-xs font-semibold px-4 text-center bg-slate-900/90">
+                    <i class="fa-solid fa-camera text-2xl mb-2 text-blue-400"></i>
+                    <span>Kamera hazır. Barkod veya Metin Oku ile başlatın.</span>
+                </div>
+            </div>
+            <div class="px-3 py-2 bg-slate-900/95 border-t border-slate-800 flex items-center justify-between text-[11px]">
+                <span id="scanFeedback" class="text-slate-300 font-medium truncate">Bekleniyor...</span>
+                <button type="button" onclick="stopCamera()" class="text-rose-400 hover:text-rose-300 font-bold ml-2 shrink-0">
+                    <i class="fa-solid fa-stop mr-1"></i>Kapat
+                </button>
+            </div>
+        </section>
 
-    <button id="btnAdd" class="btn-add" type="button">EKLE</button>
-    <div id="statusMsg" class="status">Kamera hazır. Barkot Oku veya Kod Metni Oku'ya basın.</div>
-    <div id="lastItem" class="last-item">Son eklenen: Henüz parça eklenmedi.</div>
-  </div>
+        <!-- 2. Barkod Oku Butonu -->
+        <button type="button" id="btnBarcode" onclick="startBarcodeScan()" class="w-full bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white font-bold py-3 rounded-xl shadow transition flex items-center justify-center gap-2 text-sm">
+            <i class="fa-solid fa-barcode text-base"></i> Barkod Oku
+        </button>
 
-  <script>
-    const DB_URL = "https://siparis-takip-4d2a7-default-rtdb.firebaseio.com";
-    const ACTIVE_PATH = "kutay_fethiye_aktif_kabul";
+        <!-- 3. Metin Oku Butonu -->
+        <button type="button" id="btnTextOcr" onclick="scanTextFromCamera()" class="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white font-bold py-3 rounded-xl shadow transition flex items-center justify-center gap-2 text-sm">
+            <i class="fa-solid fa-font text-base"></i> Metin Oku
+        </button>
 
-    const videoEl = document.getElementById("video");
-    const btnScan = document.getElementById("btnScan");
-    const btnOcr = document.getElementById("btnOcr");
-    const btnAdd = document.getElementById("btnAdd");
-    const barcodeInput = document.getElementById("barcodeInput");
-    const qtyInput = document.getElementById("qtyInput");
-    const statusMsg = document.getElementById("statusMsg");
-    const lastItemEl = document.getElementById("lastItem");
-    const sessionInfoEl = document.getElementById("sessionInfo");
-    const connBadgeEl = document.getElementById("connBadge");
+        <!-- 4. Parça No Alanı -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-1">
+            <label for="partNoInput" class="block text-xs font-bold text-slate-300">Parça No</label>
+            <input type="text" id="partNoInput" placeholder="Barkod/metin okutun veya yazın" class="w-full bg-slate-950 border border-slate-700 focus:border-blue-500 rounded-lg px-3 py-2.5 text-sm font-mono font-bold text-emerald-400 uppercase focus:outline-none">
+        </div>
 
-    let stream = null;
-    let scanning = false;
-    let scanTimer = null;
-    let zxingReader = null;
+        <!-- 5. Adet Alanı -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-1">
+            <label for="qtyInput" class="block text-xs font-bold text-slate-300">Adet</label>
+            <input type="number" id="qtyInput" min="1" value="1" class="w-full bg-slate-950 border border-slate-700 focus:border-blue-500 rounded-lg px-3 py-2.5 text-sm font-bold text-white focus:outline-none">
+        </div>
 
-    async function startCamera() {
-      stopCamera();
-      try {
-        const constraints = {
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-            advanced: [{ focusMode: "continuous" }]
-          },
-          audio: false
+        <!-- 6. En Altta Ekle Butonu -->
+        <button type="button" id="btnAddPart" onclick="addScannedPart()" class="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-black py-3.5 rounded-xl shadow-lg transition flex items-center justify-center gap-2 text-sm">
+            <i class="fa-solid fa-plus-circle text-base"></i> Ekle
+        </button>
+
+        <!-- 7. Eklenen Parçalar Listesi -->
+        <section class="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-2.5">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                <h2 class="text-xs font-bold uppercase tracking-wider text-slate-200 flex items-center gap-1.5">
+                    <i class="fa-solid fa-list-check text-emerald-400"></i> Eklenen Parçalar
+                </h2>
+                <span id="addedCountBadge" class="text-[11px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded-full">0 kayıt</span>
+            </div>
+
+            <div id="addedPartsList" class="divide-y divide-slate-800 text-xs">
+                <p class="py-4 text-center text-slate-500">Henüz parça eklenmedi.</p>
+            </div>
+        </section>
+
+    </main>
+
+    <canvas id="captureCanvas" class="hidden"></canvas>
+
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyCkXKhtHVj3wImlSOI7vNfv4LAFLmrtqYc",
+            authDomain: "siparis-takip-4d2a7.firebaseapp.com",
+            databaseURL: "https://siparis-takip-4d2a7-default-rtdb.firebaseio.com",
+            projectId: "siparis-takip-4d2a7",
+            storageBucket: "siparis-takip-4d2a7.firebasestorage.app",
+            messagingSenderId: "442166924279",
+            appId: "1:442166924279:web:ac8103ee871918e524d4f2",
+            measurementId: "G-FLCPTLX79X"
         };
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-        videoEl.srcObject = stream;
-        await videoEl.play();
-        statusMsg.textContent = "Kamera hazır. Kodu kırmızı çizgiye hizalayın.";
-      } catch (err) {
-        statusMsg.textContent = "Kamera açılamadı: " + err.message;
-      }
-    }
 
-    function stopCamera() {
-      scanning = false;
-      if (scanTimer) {
-        clearInterval(scanTimer);
-        scanTimer = null;
-      }
-      if (zxingReader) {
-        try { zxingReader.reset(); } catch (_) {}
-      }
-      if (stream) {
-        stream.getTracks().forEach(t => t.stop());
-        stream = null;
-      }
-    }
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+        const activeKabulRef = db.ref('kutay_fethiye_aktif_kabul');
 
-    function captureCenterCrop(cropHeightRatio = 0.45) {
-      const vw = videoEl.videoWidth;
-      const vh = videoEl.videoHeight;
-      if (!vw || !vh) return null;
+        let activeSession = null;
+        let localAddedItems = [];
+        let mediaStream = null;
+        let zxingReader = null;
+        let barcodeLoopActive = false;
 
-      const cropW = vw;
-      const cropH = Math.max(120, Math.floor(vh * cropHeightRatio));
-      const sx = 0;
-      const sy = Math.floor((vh - cropH) / 2);
+        activeKabulRef.on('value', (snap) => {
+            activeSession = snap.val();
+            const sessionInfo = document.getElementById('sessionInfo');
+            const connStatus = document.getElementById('connStatus');
+            connStatus.innerHTML = '<i class="fa-solid fa-circle text-[8px]"></i> Bağlı';
 
-      const canvas = document.createElement("canvas");
-      canvas.width = cropW;
-      canvas.height = cropH;
-      const ctx = canvas.getContext("2d", { willReadFrequently: true });
-      ctx.drawImage(videoEl, sx, sy, cropW, cropH, 0, 0, cropW, cropH);
-      return canvas;
-    }
+            if (activeSession && activeSession.active) {
+                sessionInfo.className = 'text-[11px] text-emerald-400 font-bold';
+                sessionInfo.innerText = `Aktif İrsaliye: ${activeSession.irsaliyeNo || '-'}`;
 
-    async function readBarcodeOnce() {
-      if (!stream || videoEl.readyState < 2) {
-        await startCamera();
-      }
-      if (scanning) return;
-      scanning = true;
-
-      const hasNativeDetector = "BarcodeDetector" in window;
-      const detector = hasNativeDetector ? new window.BarcodeDetector() : null;
-      if (window.ZXing && !zxingReader) {
-        zxingReader = new window.ZXing.BrowserMultiFormatReader();
-      }
-
-      let attempts = 0;
-      return new Promise((resolve) => {
-        const deadline = Date.now() + 15000;
-        scanTimer = setInterval(async () => {
-          attempts++;
-          if (Date.now() > deadline) {
-            clearInterval(scanTimer);
-            scanning = false;
-            statusMsg.textContent = "Barkod okunamadı. 'Kod Metni Oku' butonunu deneyin.";
-            resolve(null);
-            return;
-          }
-
-          const canvas = captureCenterCrop(0.5);
-          if (!canvas) return;
-          statusMsg.textContent = `Barkod aranıyor... (${attempts})`;
-
-          try {
-            if (detector) {
-              const codes = await detector.detect(canvas);
-              if (codes && codes.length > 0 && codes[0].rawValue) {
-                clearInterval(scanTimer);
-                scanning = false;
-                resolve(codes[0].rawValue.trim());
-                return;
-              }
+                if (activeSession.okutulanlar) {
+                    localAddedItems = Object.entries(activeSession.okutulanlar).map(([key, val]) => ({
+                        key,
+                        kod: val.kod,
+                        adet: parseInt(val.adet, 10) || 1,
+                        zaman: val.zaman || ''
+                    })).reverse();
+                } else {
+                    localAddedItems = [];
+                }
+            } else {
+                sessionInfo.className = 'text-[11px] text-amber-300 font-semibold';
+                sessionInfo.innerText = 'İrsaliye oturumu bekleniyor...';
             }
-            if (zxingReader) {
-              const res = await zxingReader.decodeFromCanvas(canvas).catch(() => null);
-              if (res && res.getText()) {
-                clearInterval(scanTimer);
-                scanning = false;
-                resolve(res.getText().trim());
-                return;
-              }
-            }
-          } catch (_) {}
-        }, 300);
-      });
-    }
-
-    async function readPartCodeText() {
-      if (!stream || videoEl.readyState < 2) {
-        await startCamera();
-      }
-      if (scanning) return;
-      scanning = true;
-      statusMsg.textContent = "Parça kodu metni okunuyor...";
-
-      try {
-        const canvas = captureCenterCrop(0.45);
-        if (!canvas) {
-          statusMsg.textContent = "Kamera görüntüsü alınamadı.";
-          return;
-        }
-        const { data } = await Tesseract.recognize(canvas, "eng");
-        const lines = (data.text || "")
-          .split(/\r?\n/)
-          .map(l => l.trim())
-          .filter(Boolean);
-
-        // Renault / OEM parça kodu kalıplarına uygun satırı önceliklendir (ör: 21 01 074 90R)
-        const codeCandidate =
-          lines.find(l => /\d{2}\s?\d{2}\s?\d{3}\s?\d{2}[A-Z0-9]?/i.test(l)) ||
-          lines.find(l => /[A-Z0-9]{2,}[\s-]?[A-Z0-9]{2,}/i.test(l) && !/RENAULT|GROUP|GENUINE|PARTS|ROMANIA|ORIGEN/i.test(l)) ||
-          lines[0] ||
-          "";
-
-        const cleaned = codeCandidate.replace(/[^A-Z0-9\s-]/gi, " ").replace(/\s+/g, " ").trim();
-        if (cleaned) {
-          barcodeInput.value = cleaned;
-          qtyInput.focus();
-          statusMsg.textContent = `Metinden okunan kod: ${cleaned} — Adedi girip EKLE'ye basın.`;
-        } else {
-          statusMsg.textContent = "Kod metni net okunamadı, kırmızı çizgiyi kodun üzerine getirin.";
-        }
-      } catch (err) {
-        statusMsg.textContent = "Metin okuma hatası: " + err.message;
-      } finally {
-        scanning = false;
-      }
-    }
-
-    async function pollActiveSession() {
-      try {
-        const r = await fetch(`${DB_URL}/${ACTIVE_PATH}.json`);
-        const data = await r.json();
-        if (data && data.active) {
-          sessionInfoEl.textContent = `İrsaliye: ${data.irsaliyeNo || "Belirtilmedi"}`;
-          connBadgeEl.textContent = "Oturum Aktif";
-          connBadgeEl.className = "badge badge-ok";
-        } else {
-          sessionInfoEl.textContent = "Aktif kabul oturumu yok";
-          connBadgeEl.textContent = "Bekleniyor";
-          connBadgeEl.className = "badge badge-wait";
-        }
-      } catch (_) {
-        connBadgeEl.textContent = "Bağlantı Hatası";
-        connBadgeEl.className = "badge badge-wait";
-      }
-    }
-
-    btnScan.addEventListener("click", async () => {
-      const code = await readBarcodeOnce();
-      if (code) {
-        barcodeInput.value = code;
-        qtyInput.value = qtyInput.value || "1";
-        qtyInput.focus();
-        statusMsg.textContent = `Okunan barkod: ${code} — Adedi girip EKLE'ye basın.`;
-      }
-    });
-
-    btnOcr.addEventListener("click", readPartCodeText);
-
-    btnAdd.addEventListener("click", async () => {
-      const code = barcodeInput.value.trim();
-      const qty = parseInt(qtyInput.value, 10) || 1;
-      if (!code) {
-        statusMsg.textContent = "Önce barkod/kod okutun veya yazın.";
-        return;
-      }
-
-      btnAdd.disabled = true;
-      statusMsg.textContent = "Kuyruğa ekleniyor...";
-
-      try {
-        const entry = {
-          kod: code,
-          adet: qty,
-          kaynak: "telefon_kamera",
-          tarih: new Date().toISOString()
-        };
-        await fetch(`${DB_URL}/${ACTIVE_PATH}/okutulanlar.json`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(entry)
+            renderAddedList();
         });
 
-        lastItemEl.textContent = `Son eklenen: ${code} (${qty} adet)`;
-        barcodeInput.value = "";
-        qtyInput.value = "1";
-        statusMsg.textContent = "Eklendi! Sıradaki parça için kamera hazır.";
-        await startCamera();
-      } catch (err) {
-        statusMsg.textContent = "Kayıt hatası: " + err.message;
-      } finally {
-        btnAdd.disabled = false;
-      }
-    });
+        function setFeedback(text, isError = false) {
+            const el = document.getElementById('scanFeedback');
+            el.className = isError ? 'text-rose-400 font-bold truncate' : 'text-emerald-300 font-semibold truncate';
+            el.innerText = text;
+        }
 
-    startCamera();
-    pollActiveSession();
-    setInterval(pollActiveSession, 4000);
-    window.addEventListener("beforeunload", stopCamera);
-  </script>
+        async function ensureCameraStream() {
+            const video = document.getElementById('cameraVideo');
+            const placeholder = document.getElementById('cameraPlaceholder');
+
+            if (mediaStream && mediaStream.active) {
+                placeholder.classList.add('hidden');
+                return video;
+            }
+
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: { ideal: 'environment' } },
+                audio: false
+            });
+            mediaStream = stream;
+            video.srcObject = stream;
+            await video.play();
+            placeholder.classList.add('hidden');
+            return video;
+        }
+
+        function stopCamera() {
+            barcodeLoopActive = false;
+            if (zxingReader) {
+                try { zxingReader.reset(); } catch (_) {}
+            }
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(t => t.stop());
+                mediaStream = null;
+            }
+            const video = document.getElementById('cameraVideo');
+            video.srcObject = null;
+            document.getElementById('cameraPlaceholder').classList.remove('hidden');
+            setFeedback('Kamera kapatıldı.');
+        }
+
+        async function startBarcodeScan() {
+            try {
+                setFeedback('Barkod kamerası açılıyor...');
+                const video = await ensureCameraStream();
+
+                if (!window.ZXing) {
+                    setFeedback('Barkod okuyucu yüklenemedi.', true);
+                    return;
+                }
+
+                if (!zxingReader) {
+                    zxingReader = new ZXing.BrowserMultiFormatReader();
+                }
+
+                barcodeLoopActive = true;
+                setFeedback('Barkodu kameraya tutun...');
+
+                zxingReader.decodeFromVideoElementContinuously(video, (result, err) => {
+                    if (!barcodeLoopActive) return;
+                    if (result && result.getText) {
+                        const code = result.getText().trim().toUpperCase();
+                        document.getElementById('partNoInput').value = code;
+                        barcodeLoopActive = false;
+                        try { zxingReader.reset(); } catch (_) {}
+                        setFeedback(`Barkod okundu: ${code}`);
+                        if (navigator.vibrate) navigator.vibrate(80);
+                    }
+                });
+            } catch (e) {
+                setFeedback('Kamera erişimi sağlanamadı.', true);
+            }
+        }
+
+        async function scanTextFromCamera() {
+            try {
+                barcodeLoopActive = false;
+                if (zxingReader) {
+                    try { zxingReader.reset(); } catch (_) {}
+                }
+
+                setFeedback('Kamera hazırlanıyor...');
+                const video = await ensureCameraStream();
+                await new Promise(r => setTimeout(r, 250));
+
+                const canvas = document.getElementById('captureCanvas');
+                canvas.width = video.videoWidth || 640;
+                canvas.height = video.videoHeight || 480;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                if (!window.Tesseract) {
+                    setFeedback('Metin okuma modülü yüklenemedi.', true);
+                    return;
+                }
+
+                setFeedback('Metin okunuyor...');
+                const { data } = await Tesseract.recognize(canvas, 'eng');
+                const cleanedLines = (data.text || '')
+                    .split(/\r?\n/)
+                    .map(l => l.trim())
+                    .filter(Boolean);
+
+                const candidate = cleanedLines.find(l => /[A-Z0-9]{4,}/i.test(l)) || '';
+                const partCode = candidate.replace(/[^A-Z0-9\s-]/gi, '').trim().toUpperCase();
+
+                if (partCode) {
+                    document.getElementById('partNoInput').value = partCode;
+                    setFeedback(`Metin okundu: ${partCode}`);
+                } else {
+                    setFeedback('Net parça metni algılanamadı, tekrar deneyin.', true);
+                }
+            } catch (e) {
+                setFeedback('Metin okuma sırasında hata oluştu.', true);
+            }
+        }
+
+        function addScannedPart() {
+            const partInput = document.getElementById('partNoInput');
+            const qtyInput = document.getElementById('qtyInput');
+
+            const kod = partInput.value.trim().toUpperCase();
+            const adet = parseInt(qtyInput.value, 10) || 1;
+
+            if (!kod) {
+                setFeedback('Lütfen önce Parça No girin veya okutun.', true);
+                partInput.focus();
+                return;
+            }
+
+            const entry = {
+                kod,
+                adet: adet > 0 ? adet : 1,
+                zaman: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+            };
+
+            if (activeSession && activeSession.active) {
+                const newKey = 'ok_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+                activeKabulRef.child('okutulanlar').child(newKey).set(entry);
+            } else {
+                localAddedItems.unshift({
+                    key: 'local_' + Date.now(),
+                    ...entry
+                });
+                renderAddedList();
+            }
+
+            partInput.value = '';
+            qtyInput.value = '1';
+            setFeedback(`${kod} (${entry.adet} adet) eklendi.`);
+            partInput.focus();
+        }
+
+        function renderAddedList() {
+            const container = document.getElementById('addedPartsList');
+            const badge = document.getElementById('addedCountBadge');
+            badge.innerText = `${localAddedItems.length} kayıt`;
+
+            if (localAddedItems.length === 0) {
+                container.innerHTML = '<p class="py-4 text-center text-slate-500">Henüz parça eklenmedi.</p>';
+                return;
+            }
+
+            container.innerHTML = localAddedItems.map((item, idx) => `
+                <div class="py-2.5 flex items-center justify-between gap-2">
+                    <div class="min-w-0">
+                        <span class="text-slate-400 font-mono mr-1.5">${idx + 1}.</span>
+                        <span class="font-mono font-bold text-emerald-400 break-all">${item.kod}</span>
+                        <span class="block text-[10px] text-slate-400">${item.zaman || ''}</span>
+                    </div>
+                    <span class="bg-blue-950 text-blue-200 border border-blue-800 font-bold px-2.5 py-1 rounded-lg shrink-0">
+                        ${item.adet} Adet
+                    </span>
+                </div>
+            `).join('');
+        }
+    </script>
 </body>
 </html>
