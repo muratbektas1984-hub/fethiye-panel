@@ -37,6 +37,7 @@
         <section class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
             <div class="relative w-full h-56 bg-black flex items-center justify-center">
                 <video id="cameraVideo" class="w-full h-full object-cover" playsinline autoplay muted></video>
+                <div id="aimGuide" class="hidden pointer-events-none absolute inset-x-6 h-20 border-2 border-emerald-400/80 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]"></div>
                 <div id="cameraPlaceholder" class="absolute inset-0 flex flex-col items-center justify-center text-slate-400 text-xs font-semibold px-4 text-center bg-slate-900/90">
                     <i class="fa-solid fa-camera text-2xl mb-2 text-blue-400"></i>
                     <span>Kamera hazır. Barkod veya Metin Oku ile başlatın.</span>
@@ -90,10 +91,11 @@
             </div>
         </section>
 
-        <p class="text-center text-[10px] text-slate-600 font-mono">Sürüm: v4 - 23.11</p>
+        <p class="text-center text-[10px] text-slate-600 font-mono">Sürüm: v5 - 23.11</p>
     </main>
 
     <canvas id="captureCanvas" class="hidden"></canvas>
+    <canvas id="cropCanvas" class="hidden"></canvas>
 
     <script>
         const firebaseConfig = {
@@ -112,9 +114,10 @@
         let activeSession = null;
         let localAddedItems = [];
         let mediaStream = null;
-        let zxingCodeReader = null;
+        let zxingBrowserReader = null;
+        let zxingCoreReader = null;
         let nativeBarcodeDetector = null;
-        let nativeScanTimer = null;
+        let barcodeScanTimer = null;
         let barcodeActive = false;
 
         function setConnStatus(html, colorClass) {
@@ -206,7 +209,11 @@
 
             if (!mediaStream || !mediaStream.active) {
                 mediaStream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: { ideal: 'environment' } },
+                    video: {
+                        facingMode: { ideal: 'environment' },
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    },
                     audio: false
                 });
             }
@@ -221,12 +228,10 @@
 
         function stopBarcodeLoopOnly() {
             barcodeActive = false;
-            if (nativeScanTimer) {
-                clearInterval(nativeScanTimer);
-                nativeScanTimer = null;
-            }
-            if (zxingCodeReader && typeof zxingCodeReader.stopContinuousDecode === 'function') {
-                try { zxingCodeReader.stopContinuousDecode(); } catch (_) {}
+            document.getElementById('aimGuide').classList.add('hidden');
+            if (barcodeScanTimer) {
+                clearInterval(barcodeScanTimer);
+                barcodeScanTimer = null;
             }
         }
 
@@ -251,49 +256,111 @@
             if (navigator.vibrate) navigator.vibrate(80);
         }
 
+        function initBarcodeDecoders() {
+            if ('BarcodeDetector' in window && !nativeBarcodeDetector) {
+                try {
+                    nativeBarcodeDetector = new BarcodeDetector({
+                        formats: ['code_128', 'code_39', 'code_93', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'itf', 'qr_code', 'data_matrix']
+                    });
+                } catch (_) {
+                    nativeBarcodeDetector = null;
+                }
+            }
+
+            if (window.ZXing) {
+                const hints = new Map();
+                hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+                if (!zxingBrowserReader && typeof ZXing.BrowserMultiFormatReader === 'function') {
+                    zxingBrowserReader = new ZXing.BrowserMultiFormatReader(hints);
+                }
+                if (!zxingCoreReader && typeof ZXing.MultiFormatReader === 'function') {
+                    zxingCoreReader = new ZXing.MultiFormatReader();
+                    zxingCoreReader.setHints(hints);
+                }
+            }
+        }
+
+        async function tryDecodeTarget(target) {
+            if (nativeBarcodeDetector) {
+                try {
+                    const codes = await nativeBarcodeDetector.detect(target);
+                    if (codes && codes.length > 0 && codes[0].rawValue) {
+                        return codes[0].rawValue;
+                    }
+                } catch (_) {}
+            }
+
+            if (window.ZXing && target instanceof HTMLCanvasElement) {
+                if (zxingBrowserReader && typeof zxingBrowserReader.decodeFromCanvas === 'function') {
+                    try {
+                        const res = await zxingBrowserReader.decodeFromCanvas(target);
+                        if (res && typeof res.getText === 'function') return res.getText();
+                    } catch (_) {}
+                }
+
+                if (zxingCoreReader && typeof ZXing.HTMLCanvasElementLuminanceSource === 'function') {
+                    try {
+                        const luminanceSource = new ZXing.HTMLCanvasElementLuminanceSource(target);
+                        const binaryBitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminanceSource));
+                        const res = zxingCoreReader.decode(binaryBitmap);
+                        if (res && typeof res.getText === 'function') return res.getText();
+                    } catch (_) {}
+                }
+            }
+
+            return '';
+        }
+
         async function startBarcodeScan() {
             try {
                 stopBarcodeLoopOnly();
                 setFeedback('Kamera açılıyor...');
                 const video = await openRearCameraStream();
+                initBarcodeDecoders();
+
+                if (!nativeBarcodeDetector && !window.ZXing) {
+                    setFeedback('Barkod okuyucu bulunamadı.', true);
+                    return;
+                }
+
+                const fullCanvas = document.getElementById('captureCanvas');
+                const fullCtx = fullCanvas.getContext('2d', { willReadFrequently: true });
+                const cropCanvas = document.getElementById('cropCanvas');
+                const cropCtx = cropCanvas.getContext('2d', { willReadFrequently: true });
+
                 barcodeActive = true;
+                document.getElementById('aimGuide').classList.remove('hidden');
+                setFeedback('Barkodu yeşil alana hizalayın...');
 
-                if ('BarcodeDetector' in window) {
-                    if (!nativeBarcodeDetector) {
-                        nativeBarcodeDetector = new BarcodeDetector({
-                            formats: ['code_128', 'code_39', 'code_93', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'itf', 'qr_code', 'data_matrix']
-                        });
+                barcodeScanTimer = setInterval(async () => {
+                    if (!barcodeActive || video.readyState < 2) return;
+                    const vw = video.videoWidth;
+                    const vh = video.videoHeight;
+                    if (!vw || !vh) return;
+
+                    fullCanvas.width = vw;
+                    fullCanvas.height = vh;
+                    fullCtx.drawImage(video, 0, 0, vw, vh);
+
+                    // Önce orta odak bandını kırpıp tara (1D barkodlarda daha net)
+                    const cropW = Math.floor(vw * 0.85);
+                    const cropH = Math.floor(vh * 0.36);
+                    const cropX = Math.floor((vw - cropW) / 2);
+                    const cropY = Math.floor((vh - cropH) / 2);
+
+                    cropCanvas.width = cropW;
+                    cropCanvas.height = cropH;
+                    cropCtx.drawImage(fullCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+                    let found = await tryDecodeTarget(cropCanvas);
+                    if (!found) {
+                        found = await tryDecodeTarget(fullCanvas);
                     }
-                    setFeedback('Barkodu kameraya tutun...');
-                    nativeScanTimer = setInterval(async () => {
-                        if (!barcodeActive || video.readyState < 2) return;
-                        try {
-                            const codes = await nativeBarcodeDetector.detect(video);
-                            if (codes && codes.length > 0 && codes[0].rawValue) {
-                                handleBarcodeMatch(codes[0].rawValue);
-                            }
-                        } catch (_) {}
-                    }, 250);
-                    return;
-                }
 
-                if (window.ZXing) {
-                    if (!zxingCodeReader) {
-                        const hints = new Map();
-                        hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-                        zxingCodeReader = new ZXing.BrowserMultiFormatReader(hints);
+                    if (found && barcodeActive) {
+                        handleBarcodeMatch(found);
                     }
-                    setFeedback('Barkodu kameraya tutun...');
-                    zxingCodeReader.decodeFromStream(mediaStream, video, (result) => {
-                        if (!barcodeActive) return;
-                        if (result && typeof result.getText === 'function') {
-                            handleBarcodeMatch(result.getText());
-                        }
-                    });
-                    return;
-                }
-
-                setFeedback('Barkod okuyucu bulunamadı.', true);
+                }, 220);
             } catch (e) {
                 barcodeActive = false;
                 setFeedback(`Kamera hatası: ${e.message || 'izin verilmedi'}`, true);
