@@ -276,16 +276,6 @@
                 return;
             }
 
-            if (partStatus.state === 'ordered') {
-                const expMap = getExpectedTotals();
-                const scMap = getScannedTotals();
-                const expQty = expMap[c];
-                const scQty = scMap[c] || 0;
-                badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-700';
-                badge.innerText = typeof expQty === 'number' ? `Siparişte (${scQty}/${expQty})` : 'Sipariş Konumunda';
-                return;
-            }
-
             const expMap = getExpectedTotals();
             const scMap = getScannedTotals();
             const expQty = expMap[c];
@@ -296,9 +286,9 @@
                     ? 'text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700'
                     : 'text-[10px] font-bold px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-700';
                 badge.innerText = `İrsaliyede var (${scQty}/${expQty})`;
-            } else if (Object.keys(expMap).length > 0) {
+            } else if (Object.keys(expMap).length > 0 || partStatus.state === 'not_in_list') {
                 badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-700';
-                badge.innerText = 'İrsaliye listesinde yok';
+                badge.innerText = 'İrsaliyede Yok';
             } else {
                 badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-700';
                 badge.innerText = `Okunan: ${scQty}`;
@@ -371,7 +361,7 @@
                         tag = `<span class="bg-rose-950 text-rose-300 border border-rose-700 font-bold px-2 py-1 rounded-lg">Fazla (${sc}/${exp})</span>`;
                     }
                 } else {
-                    tag = `<span class="bg-purple-950 text-purple-200 border border-purple-700 font-bold px-2 py-1 rounded-lg">Listede Yok (${sc})</span>`;
+                    tag = `<span class="bg-rose-950 text-rose-300 border border-rose-700 font-bold px-2 py-1 rounded-lg">İrsaliyede Yok (${sc})</span>`;
                 }
 
                 return `
@@ -461,10 +451,13 @@
             refreshMatchBadge();
 
             const statusInfo = getPartOrderStatus(code);
+            const expMap = getExpectedTotals();
+            const inWaybill = typeof expMap[code] === 'number' || statusInfo.state === 'ordered' || statusInfo.state === 'arrived';
+
             if (statusInfo.state === 'arrived') {
                 setStatusMsg(`${code} listede GELMİŞ durumda — işlem yapılmayacak.`, true);
-            } else if (statusInfo.state === 'ordered') {
-                setStatusMsg(`${code} SİPARİŞ konumunda — eklenebilir.`);
+            } else if (!inWaybill && (Object.keys(expMap).length > 0 || currentSession)) {
+                setStatusMsg(`${code} İrsaliyede Yok — Ekle ile listeye ekleyebilirsiniz.`, true);
             } else {
                 setStatusMsg(`Okunan: "${rawText}" → Parça: ${code}`);
             }
@@ -593,6 +586,7 @@
 
             const statusInfo = getPartOrderStatus(kod);
 
+            // Listede var ve durumu "geldi" ise hiçbir işlem yapma
             if (statusInfo.state === 'arrived') {
                 pInput.value = '';
                 qInput.value = '1';
@@ -602,28 +596,16 @@
                 return;
             }
 
-            const hasOrderList = !!(
-                currentSession &&
-                (currentSession.parcaDurumlari ||
-                 currentSession.durumlar ||
-                 currentSession.parcalar ||
-                 currentSession.kalemler ||
-                 currentSession.beklenen)
-            );
-
-            if (hasOrderList && statusInfo.state !== 'ordered') {
-                pInput.value = '';
-                qInput.value = '1';
-                refreshMatchBadge();
-                setStatusMsg(`${kod} SİPARİŞ konumunda değil — işlem yapılmadı.`, true);
-                pInput.focus();
-                return;
-            }
+            const expMap = getExpectedTotals();
+            const isMissingFromWaybill =
+                (Object.keys(expMap).length > 0 && typeof expMap[kod] !== 'number' && statusInfo.state !== 'ordered') ||
+                statusInfo.state === 'not_in_list';
 
             const key = 'ok_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
             const item = {
                 kod,
                 adet: adet > 0 ? adet : 1,
+                irsaliyedeYok: isMissingFromWaybill,
                 zaman: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
             };
 
@@ -643,7 +625,12 @@
                 pInput.value = '';
                 qInput.value = '1';
                 refreshMatchBadge();
-                setStatusMsg(`${kod} (${item.adet} adet) kaydedildi.`);
+
+                if (isMissingFromWaybill) {
+                    setStatusMsg(`${kod} (${item.adet} adet) listeye eklendi — İrsaliyede Yok!`, true);
+                } else {
+                    setStatusMsg(`${kod} (${item.adet} adet) kaydedildi.`);
+                }
                 pInput.focus();
             } catch (err) {
                 setConnBadge(`Bağlantı Yok (${err.message})`, 'text-rose-400');
