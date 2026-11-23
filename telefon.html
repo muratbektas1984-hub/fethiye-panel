@@ -111,12 +111,49 @@
         let nativeDetector = null;
         let scanningActive = false;
 
-        function cleanCode(val) {
+        function parseBarcodeValue(val) {
             let s = String(val || '').trim().toUpperCase();
             s = s.replace(/^P[\s\-:\/]*/i, '');
             s = s.replace(/[^A-Z0-9]/g, '');
             s = s.replace(/^P+/, '');
-            return s.trim();
+
+            let detectedQty = null;
+
+            // 10 karakterlik OEM kodun sonuna yapışmış 1 veya 2 haneli adet (ör: 140550667R10 -> 140550667R, adet 10)
+            const afterOem10 = s.match(/^([A-Z0-9]{10})(10|[1-9])$/);
+            if (afterOem10) {
+                return {
+                    code: afterOem10[1],
+                    qty: parseInt(afterOem10[2], 10)
+                };
+            }
+
+            // Sadece rakamlardan oluşan uzun barkodlarda (ör: 11-12 haneli) son 1-2 hane adet olarak eklenmişse
+            const afterDigits10 = s.match(/^(\d{10})(10|[1-9])$/);
+            if (afterDigits10) {
+                return {
+                    code: afterDigits10[1],
+                    qty: parseInt(afterDigits10[2], 10)
+                };
+            }
+
+            // Ayırıcı veya boşlukla sondan eklenmiş 1 veya 10 gibi sayılar
+            const rawTrailing = String(val || '').trim().toUpperCase().match(/^(.*?)[\s\-_:\/]+(10|[1-9])$/);
+            if (rawTrailing) {
+                let base = rawTrailing[1].replace(/^P[\s\-:\/]*/i, '').replace(/[^A-Z0-9]/g, '').replace(/^P+/, '');
+                if (base.length >= 6) {
+                    return {
+                        code: base,
+                        qty: parseInt(rawTrailing[2], 10)
+                    };
+                }
+            }
+
+            return { code: s, qty: detectedQty };
+        }
+
+        function cleanCode(val) {
+            return parseBarcodeValue(val).code;
         }
 
         function setStatusMsg(msg, isErr = false) {
@@ -266,11 +303,14 @@
         } catch (e) {}
 
         function onBarcodeDetected(rawText) {
-            const code = cleanCode(rawText);
-            if (!code) return;
-            document.getElementById('parcaNoInput').value = code;
+            const parsed = parseBarcodeValue(rawText);
+            if (!parsed.code) return;
+            document.getElementById('parcaNoInput').value = parsed.code;
+            if (parsed.qty) {
+                document.getElementById('adetInput').value = String(parsed.qty);
+            }
             refreshMatchBadge();
-            setStatusMsg(`Ham: ${rawText} → Parça No: ${code}`);
+            setStatusMsg(`Ham: ${rawText} → Parça: ${parsed.code}${parsed.qty ? ' (Adet: ' + parsed.qty + ')' : ''}`);
             if (navigator.vibrate) navigator.vibrate(80);
             stopBarcodeScan();
         }
@@ -400,19 +440,4 @@
             };
 
             if (kabulRef && currentSession && currentSession.active) {
-                const key = 'ok_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-                kabulRef.child('okutulanlar').child(key).set(item);
-            } else {
-                scannedItems.unshift({ key: 'loc_' + Date.now(), ...item });
-                renderList();
-            }
-
-            pInput.value = '';
-            qInput.value = '1';
-            refreshMatchBadge();
-            setStatusMsg(`${kod} (${item.adet} adet) eklendi.`);
-            pInput.focus();
-        }
-    </script>
-</body>
-</html>
+                const key = 'ok_' + Date.now() + '_' + Math.
