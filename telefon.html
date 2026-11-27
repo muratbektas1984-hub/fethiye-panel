@@ -5,171 +5,78 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
-    <title>Kutay Fethiye - Mobil Barkod & İrsaliye</title>
+    <title>Kutay Fethiye - Mobil Barkod Okutma</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-
-    <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
-    <!-- ZXing Kamera Barkod Okuyucu -->
     <script src="https://unpkg.com/@zxing/library@0.20.0/umd/index.min.js"></script>
-
     <style>
         body { touch-action: manipulation; }
-        #scannerVideo {
+        #cameraVideo {
             width: 100%;
-            max-height: 240px;
+            height: 220px;
             object-fit: cover;
             border-radius: 0.75rem;
             background: #0f172a;
         }
-        .custom-scrollbar::-webkit-scrollbar { height: 8px; width: 8px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: #e2e8f0; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #2563eb; border-radius: 4px; }
     </style>
 </head>
-<body class="bg-slate-100 min-h-screen text-slate-900 font-sans pb-12" data-page-file="telefon.html">
-
-    <!-- Üst Başlık (Mevcut Panel Düzeni) -->
-    <header class="bg-slate-900 text-white shadow-md sticky top-0 z-30">
-        <div class="max-w-3xl mx-auto px-3 py-3 flex items-center justify-between gap-2">
-            <div class="flex items-center gap-2.5">
-                <div class="bg-blue-700 p-2 rounded-lg shadow-inner">
-                    <i class="fa-solid fa-barcode text-lg text-white"></i>
-                </div>
-                <div>
-                    <h1 class="text-sm sm:text-base font-bold tracking-tight flex items-center gap-2 flex-wrap">
-                        Kutay Fethiye - <span id="panelTitleName">Mobil Cihaz</span>
-                        <span id="onlineStatus" class="text-[11px] font-bold text-amber-300">
-                            <i class="fa-solid fa-circle text-[8px] animate-pulse"></i> Bağlanıyor...
-                        </span>
-                    </h1>
-                    <p class="text-[11px] text-slate-300 font-semibold">Mobil Barkod & İrsaliye Kabul (telefon.html)</p>
-                </div>
-            </div>
-            <button type="button" onclick="toggleCameraScanner()" id="camToggleBtn" class="bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold px-3 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm shrink-0">
-                <i class="fa-solid fa-camera"></i> <span id="camToggleLabel">Kamera</span>
-            </button>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans pb-10">
+    <header class="bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center justify-between sticky top-0 z-20">
+        <div class="flex items-center gap-2">
+            <i class="fa-solid fa-barcode text-amber-400 text-lg"></i>
+            <span class="font-black text-sm tracking-tight">Kutay Fethiye - Barkod Okutma</span>
         </div>
+        <span id="baglantiDurumu" class="text-[11px] font-bold text-amber-300">Bağlanıyor...</span>
     </header>
 
-    <main class="max-w-3xl mx-auto px-3 py-4 space-y-4">
-
-        <!-- Kamera Barkod Okuyucu Alanı -->
-        <section id="scannerBox" class="hidden bg-slate-900 text-white rounded-xl shadow-md border border-slate-700 p-3 space-y-2">
-            <div class="flex items-center justify-between text-xs">
-                <span class="font-bold text-emerald-400"><i class="fa-solid fa-qrcode mr-1"></i> Kamera Barkod Tarayıcı</span>
-                <button type="button" onclick="stopCameraScanner()" class="text-rose-400 hover:text-rose-300 font-bold">Kapat</button>
-            </div>
-            <video id="scannerVideo" playsinline muted></video>
-            <p class="text-[11px] text-slate-300">Barkodu okuttuğunuzda sondaki fazla <span class="font-mono text-amber-300">1</span> otomatik temizlenir.</p>
+    <main class="max-w-md mx-auto p-3 space-y-3">
+        <!-- 1. Üstte Kamera Ekranı -->
+        <section class="bg-slate-900 border border-slate-800 rounded-xl p-2.5">
+            <video id="cameraVideo" playsinline muted></video>
         </section>
 
-        <!-- Sekmeler -->
-        <div class="flex gap-2 border-b border-slate-300 pb-2 flex-wrap">
-            <button type="button" id="tabBtnWaybill" onclick="switchMobileTab('waybill')" class="bg-amber-600 text-white text-xs font-bold px-4 py-2 rounded-lg shadow transition flex items-center gap-1.5">
-                <i class="fa-solid fa-file-invoice"></i> İrsaliye Kabul
+        <!-- 2. Altında Barkod Oku -->
+        <section>
+            <button type="button" id="barkodOkuBtn" onclick="toggleCamera()" class="w-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-black text-sm py-3 rounded-xl shadow flex items-center justify-center gap-2">
+                <i class="fa-solid fa-camera"></i> <span id="barkodOkuLabel">Barkod Oku</span>
             </button>
-            <button type="button" id="tabBtnOrder" onclick="switchMobileTab('order')" class="bg-slate-300 text-slate-800 hover:bg-slate-400 text-xs font-bold px-4 py-2 rounded-lg transition flex items-center gap-1.5">
-                <i class="fa-solid fa-cube"></i> Parça / Sipariş Giriş
-            </button>
-        </div>
-
-        <!-- Parça Okutma ve Kayıt Kartı -->
-        <section class="bg-white rounded-xl shadow-sm border border-slate-300 p-4 space-y-3">
-            <div class="flex items-center justify-between border-b border-slate-200 pb-2">
-                <h2 class="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
-                    <i class="fa-solid fa-barcode text-blue-700"></i> Parça Barkod / Numara Girişi
-                </h2>
-                <span id="activeWaybillBadge" class="text-[11px] font-bold px-2.5 py-0.5 rounded bg-slate-200 text-slate-800">İrsaliye: -</span>
-            </div>
-
-            <div class="grid grid-cols-1 sm:grid-cols-12 gap-3">
-                <div class="sm:col-span-8">
-                    <label for="mobileParcaNo" class="block text-[11px] font-black text-amber-900 mb-1">Parça Numarası (OEM)</label>
-                    <input type="text" id="mobileParcaNo" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" placeholder="Örn: 172025527R" class="w-full text-xs font-mono font-black border border-amber-500 rounded-md p-2.5 text-slate-900 uppercase bg-amber-50/60 focus:ring-2 focus:ring-blue-700 focus:outline-none">
-                </div>
-                <div class="sm:col-span-4">
-                    <label for="mobileAdet" class="block text-[11px] font-black text-amber-900 mb-1">Adet</label>
-                    <input type="number" id="mobileAdet" min="1" value="1" class="w-full text-xs font-bold border border-amber-500 rounded-md p-2.5 text-slate-900 bg-amber-50/60 focus:ring-2 focus:ring-blue-700 focus:outline-none">
-                </div>
-            </div>
-
-            <!-- Sipariş Modu Ek Alanları -->
-            <div id="orderModeFields" class="hidden space-y-3 pt-1">
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                        <label for="mobileDanisman" class="block text-[11px] font-black text-slate-900 mb-1">Danışman</label>
-                        <input type="text" id="mobileDanisman" placeholder="Örn: Ahmet" class="w-full text-xs font-semibold border border-slate-300 rounded-md p-2 text-slate-900 capitalize focus:ring-2 focus:ring-blue-700 focus:outline-none">
-                    </div>
-                    <div>
-                        <label for="mobilePlaka" class="block text-[11px] font-black text-slate-900 mb-1">Araç Plakası</label>
-                        <input type="text" id="mobilePlaka" placeholder="48ABC123" class="w-full text-xs font-bold border border-slate-300 rounded-md p-2 text-slate-900 uppercase focus:ring-2 focus:ring-blue-700 focus:outline-none">
-                    </div>
-                </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                        <label for="mobileBolum" class="block text-[11px] font-black text-slate-900 mb-1">Bölüm</label>
-                        <select id="mobileBolum" class="w-full text-xs font-bold border border-slate-300 rounded-md p-2 bg-white text-slate-900 focus:ring-2 focus:ring-blue-700 focus:outline-none">
-                            <option value="Mekanik">Mekanik</option>
-                            <option value="Kaporta">Kaporta</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label for="mobileAciklama" class="block text-[11px] font-black text-slate-900 mb-1">Parça Açıklaması</label>
-                        <input type="text" id="mobileAciklama" placeholder="Açıklama" class="w-full text-xs font-semibold border border-slate-300 rounded-md p-2 text-slate-900 focus:ring-2 focus:ring-blue-700 focus:outline-none">
-                    </div>
-                </div>
-            </div>
-
-            <div class="flex justify-end pt-1">
-                <button type="button" id="mobileSubmitBtn" onclick="submitMobileCode()" class="w-full sm:w-auto bg-amber-600 hover:bg-amber-700 text-white font-bold px-6 py-2.5 text-xs rounded-md shadow transition flex items-center justify-center gap-1.5">
-                    <i class="fa-solid fa-check"></i> <span id="mobileSubmitLabel">İrsaliyeye İşle</span>
-                </button>
-            </div>
-
-            <!-- Son Okunan ve Temizlenen Kod Bilgilendirmesi -->
-            <div id="scanFeedbackBox" class="hidden bg-slate-50 border border-slate-300 rounded-lg p-3 text-xs space-y-1">
-                <div class="flex items-center justify-between">
-                    <span class="font-bold text-slate-600">Ham Okunan:</span>
-                    <span id="feedbackRaw" class="font-mono font-bold text-rose-700">-</span>
-                </div>
-                <div class="flex items-center justify-between">
-                    <span class="font-bold text-slate-600">Temizlenen Parça No:</span>
-                    <span id="feedbackClean" class="font-mono font-black text-emerald-700 text-sm">-</span>
-                </div>
-                <p id="feedbackMessage" class="text-[11px] font-bold text-blue-900 pt-1"></p>
-            </div>
         </section>
 
-        <!-- Aktif İrsaliye Kalem Karşılaştırma Tablosu -->
-        <section id="waybillTableSection" class="bg-white rounded-xl shadow-sm border border-slate-300 overflow-hidden">
-            <div class="px-4 py-2.5 bg-slate-100 border-b border-slate-300 flex justify-between items-center">
-                <span class="text-xs font-black text-slate-900 uppercase tracking-wider">Aktif İrsaliye Kalemleri</span>
+        <!-- 3. Altında Okunan Numaranın Yazılması -->
+        <section class="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-1.5">
+            <label for="okunanParcaNo" class="block text-xs font-black uppercase text-amber-300">Okunan Parça Numarası</label>
+            <input type="text" id="okunanParcaNo" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" placeholder="Örn: 172025527R" class="w-full bg-slate-950 border border-amber-500 rounded-lg px-3 py-2.5 text-sm font-mono font-black text-emerald-300 uppercase focus:outline-none focus:ring-2 focus:ring-amber-400">
+        </section>
+
+        <!-- 4. Altında Adet -->
+        <section class="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-1.5">
+            <label for="parcaAdet" class="block text-xs font-black uppercase text-amber-300">Adet</label>
+            <input type="number" id="parcaAdet" min="1" value="1" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-sm font-bold text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </section>
+
+        <!-- 5. Altında Ekle -->
+        <section>
+            <button type="button" onclick="ekleParca()" class="w-full bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-black text-sm py-3 rounded-xl shadow flex items-center justify-center gap-2">
+                <i class="fa-solid fa-plus-circle"></i> Ekle
+            </button>
+        </section>
+
+        <!-- 6. Altında Okutulan Parçalar -->
+        <section class="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-2">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                <h2 class="text-xs font-black uppercase text-slate-200">Okutulan Parçalar</h2>
+                <span id="irsaliyeNoEtiket" class="text-[11px] font-bold text-amber-300">İrsaliye: -</span>
             </div>
-            <div class="overflow-x-auto custom-scrollbar">
-                <table class="w-full text-left border-collapse whitespace-nowrap">
-                    <thead>
-                        <tr class="bg-slate-900 text-white text-[11px] uppercase tracking-wider font-bold">
-                            <th class="py-2.5 px-3">Parça No</th>
-                            <th class="py-2.5 px-3 text-right">Beklenen</th>
-                            <th class="py-2.5 px-3 text-right">Okutulan</th>
-                            <th class="py-2.5 px-3">Durum</th>
-                        </tr>
-                    </thead>
-                    <tbody id="mobileWbBody" class="divide-y divide-slate-300 text-xs text-slate-900 font-medium">
-                        <tr><td colspan="4" class="py-6 text-center text-slate-500 font-semibold">Aktif irsaliye kaydı yok.</td></tr>
-                    </tbody>
-                </table>
+            <div id="okutulanParcalarListe" class="divide-y divide-slate-800 text-xs">
+                <p class="py-4 text-center text-slate-500">Henüz okutulan parça yok.</p>
             </div>
         </section>
     </main>
 
     <script>
-        const KULLANICI_ADI = "Mobil Cihaz";
-        document.getElementById("panelTitleName").innerText = KULLANICI_ADI;
-
+        const KULLANICI = "Mobil Cihaz";
         const firebaseConfig = {
             apiKey: "AIzaSyCkXKhtHVj3wImlSOI7vNfv4LAFLmrtqYc",
             authDomain: "siparis-takip-4d2a7.firebaseapp.com",
@@ -183,18 +90,17 @@
 
         const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
         const db = firebase.database(app);
-        const ordersRef = db.ref("kutay_fethiye_orders");
         const wbRef = db.ref("kutay_fethiye_aktif_kabul");
 
-        let activeMobileTab = "waybill";
-        let activeWaybill = null;
+        let aktifIrsaliye = null;
         let codeReader = null;
-        let lastScanCode = "";
-        let lastScanTime = 0;
-        let lastInputClean = "";
-        let lastInputTime = 0;
+        let kameraAcik = false;
+        let sonOkunanKod = "";
+        let sonOkumaZamani = 0;
+        let sonTemizGiris = "";
+        let sonGirisZamani = 0;
 
-        // 172025527R1 -> 172025527R gibi sonuna yapışan tekil "1" karakterini temizler
+        // 172025527R1 -> 172025527R gibi parça no sonuna yapışan tekil "1" karakterini ayıklar
         function cleanCode(val) {
             let s = String(val || "").trim().toUpperCase();
             s = s.replace(/^P[\s\-:\/]*/i, "");
@@ -206,77 +112,210 @@
             return s;
         }
 
-        function sanitizeMobileInput() {
-            const inp = document.getElementById("mobileParcaNo");
-            const raw = String(inp.value || "");
-            const now = Date.now();
-            let cleaned = cleanCode(raw);
+        const parcaInput = document.getElementById("okunanParcaNo");
+        const adetInput = document.getElementById("parcaAdet");
 
-            // Okuyucu kodu önce 172025527R olarak yazıp hemen ardından sonuna "1" eklerse kırp
-            if (lastInputClean && (now - lastInputTime < 600) && cleaned === lastInputClean + "1") {
-                cleaned = lastInputClean;
+        function temizleGirisKutusu() {
+            const ham = String(parcaInput.value || "");
+            const simdi = Date.now();
+            let temiz = cleanCode(ham);
+
+            if (sonTemizGiris && (simdi - sonGirisZamani < 600) && temiz === sonTemizGiris + "1") {
+                temiz = sonTemizGiris;
             }
 
-            if (cleaned && raw.toUpperCase() !== cleaned) {
-                inp.value = cleaned;
+            if (temiz && ham.toUpperCase() !== temiz) {
+                parcaInput.value = temiz;
             }
 
-            if (cleaned) {
-                lastInputClean = cleaned;
-                lastInputTime = now;
+            if (temiz) {
+                sonTemizGiris = temiz;
+                sonGirisZamani = simdi;
             }
 
-            return cleaned;
+            return temiz;
         }
 
-        const parcaInputEl = document.getElementById("mobileParcaNo");
-        ["input", "change", "blur"].forEach(ev => {
-            parcaInputEl.addEventListener(ev, () => {
-                sanitizeMobileInput();
-                setTimeout(() => sanitizeMobileInput(), 30);
+        ["input", "change", "blur"].forEach(olay => {
+            parcaInput.addEventListener(olay, () => {
+                temizleGirisKutusu();
+                setTimeout(temizleGirisKutusu, 30);
             });
         });
-        parcaInputEl.addEventListener("paste", () => {
-            setTimeout(() => sanitizeMobileInput(), 15);
-            setTimeout(() => sanitizeMobileInput(), 60);
+
+        parcaInput.addEventListener("paste", () => {
+            setTimeout(temizleGirisKutusu, 15);
+            setTimeout(temizleGirisKutusu, 60);
         });
-        parcaInputEl.addEventListener("keydown", (e) => {
+
+        parcaInput.addEventListener("keydown", (e) => {
             if (e.key === "Enter") {
                 e.preventDefault();
-                setTimeout(() => submitMobileCode(), 20);
+                setTimeout(ekleParca, 20);
             }
         });
 
         db.ref(".info/connected").on("value", (snap) => {
-            const el = document.getElementById("onlineStatus");
+            const el = document.getElementById("baglantiDurumu");
             if (snap.val() === true) {
                 el.className = "text-[11px] font-bold text-emerald-400";
-                el.innerHTML = '<i class="fa-solid fa-circle text-[8px]"></i> Online (Bağlı)';
+                el.textContent = "Online";
             } else {
                 el.className = "text-[11px] font-bold text-amber-300";
-                el.innerHTML = '<i class="fa-solid fa-circle text-[8px] animate-pulse"></i> Bağlanıyor...';
+                el.textContent = "Bağlanıyor...";
             }
         });
 
         wbRef.on("value", (snap) => {
-            activeWaybill = snap.val() || null;
-            renderMobileWaybillTable();
+            aktifIrsaliye = snap.val() || null;
+            renderOkutulanParcalar();
         });
 
-        function switchMobileTab(tab) {
-            activeMobileTab = tab;
-            const tabWb = document.getElementById("tabBtnWaybill");
-            const tabOrd = document.getElementById("tabBtnOrder");
-            const orderFields = document.getElementById("orderModeFields");
-            const wbSection = document.getElementById("waybillTableSection");
-            const submitBtn = document.getElementById("mobileSubmitBtn");
-            const submitLabel = document.getElementById("mobileSubmitLabel");
+        function renderOkutulanParcalar() {
+            const etiket = document.getElementById("irsaliyeNoEtiket");
+            const liste = document.getElementById("okutulanParcalarListe");
 
-            tabWb.className = "bg-slate-300 text-slate-800 hover:bg-slate-400 text-xs font-bold px-4 py-2 rounded-lg transition flex items-center gap-1.5";
-            tabOrd.className = "bg-slate-300 text-slate-800 hover:bg-slate-400 text-xs font-bold px-4 py-2 rounded-lg transition flex items-center gap-1.5";
+            if (!aktifIrsaliye) {
+                etiket.textContent = "İrsaliye: -";
+                liste.innerHTML = '<p class="py-4 text-center text-slate-500">Henüz okutulan parça yok.</p>';
+                return;
+            }
 
-            if (tab === "waybill") {
-                tabWb.className = "bg-amber-600 text-white text-xs font-bold px-4 py-2 rounded-lg shadow transition flex items-center gap-1.5";
-                orderFields.classList.add("hidden");
-                wbSection.classList.remove("hidden");
-                submitBtn.className = "w-full sm:w-auto bg
+            etiket.textContent = `İrsaliye: ${aktifIrsaliye.irsaliyeNo || "-"}`;
+
+            const okutulanlar = aktifIrsaliye.okutulanlar && typeof aktifIrsaliye.okutulanlar === "object"
+                ? Object.values(aktifIrsaliye.okutulanlar).filter(Boolean)
+                : [];
+
+            if (!okutulanlar.length) {
+                liste.innerHTML = '<p class="py-4 text-center text-slate-500">Henüz okutulan parça yok.</p>';
+                return;
+            }
+
+            liste.innerHTML = okutulanlar.slice().reverse().map((item) => {
+                const kod = cleanCode(item.kod);
+                const adet = parseInt(item.adet, 10) || 1;
+                const zaman = item.zaman || "";
+                return `
+                    <div class="py-2.5 flex items-center justify-between gap-2">
+                        <div>
+                            <span class="font-mono font-black text-emerald-400 text-sm">${kod}</span>
+                            <span class="text-[11px] text-slate-400 ml-2">${zaman}</span>
+                        </div>
+                        <span class="font-mono font-black text-white bg-slate-800 px-2.5 py-1 rounded">${adet} Adet</span>
+                    </div>
+                `;
+            }).join("");
+        }
+
+        async function ekleParca() {
+            const temizKod = cleanCode(parcaInput.value || temizleGirisKutusu());
+            const adet = Math.max(1, parseInt(adetInput.value, 10) || 1);
+
+            if (!temizKod) {
+                alert("Lütfen parça numarası okutun veya yazın.");
+                return;
+            }
+
+            parcaInput.value = temizKod;
+
+            if (!aktifIrsaliye || !aktifIrsaliye.active) {
+                alert("Önce yönetici panelinden aktif irsaliye oturumu başlatın.");
+                return;
+            }
+
+            const kayitKey = "sc_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6);
+            await wbRef.child("okutulanlar").child(kayitKey).set({
+                kod: temizKod,
+                adet,
+                okutan: KULLANICI,
+                zaman: new Date().toLocaleTimeString("tr-TR")
+            });
+
+            parcaInput.value = "";
+            sonTemizGiris = "";
+            adetInput.value = "1";
+            parcaInput.focus();
+        }
+
+        function barkodYakalandi(hamMetin) {
+            const simdi = Date.now();
+            const temizKod = cleanCode(hamMetin);
+            if (!temizKod) return;
+            if (temizKod === sonOkunanKod && (simdi - sonOkumaZamani < 1500)) return;
+
+            sonOkunanKod = temizKod;
+            sonOkumaZamani = simdi;
+            sonTemizGiris = temizKod;
+            sonGirisZamani = simdi;
+
+            parcaInput.value = temizKod;
+        }
+
+        async function kameraAc() {
+            const video = document.getElementById("cameraVideo");
+            const label = document.getElementById("barkodOkuLabel");
+            kameraAcik = true;
+            label.textContent = "Kamerayı Kapat";
+
+            if (window.ZXing && ZXing.BrowserMultiFormatReader) {
+                if (!codeReader) {
+                    codeReader = new ZXing.BrowserMultiFormatReader();
+                }
+                try {
+                    await codeReader.decodeFromVideoDevice(null, video, (result) => {
+                        if (result && result.getText) {
+                            barkodYakalandi(result.getText());
+                        }
+                    });
+                    return;
+                } catch (_) {}
+            }
+
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+                video.srcObject = stream;
+                await video.play();
+
+                if ("BarcodeDetector" in window) {
+                    const detector = new BarcodeDetector();
+                    const tara = async () => {
+                        if (!kameraAcik) return;
+                        try {
+                            const codes = await detector.detect(video);
+                            if (codes.length && codes[0].rawValue) {
+                                barkodYakalandi(codes[0].rawValue);
+                            }
+                        } catch (_) {}
+                        requestAnimationFrame(tara);
+                    };
+                    requestAnimationFrame(tara);
+                }
+            }
+        }
+
+        function kameraKapat() {
+            const video = document.getElementById("cameraVideo");
+            const label = document.getElementById("barkodOkuLabel");
+            kameraAcik = false;
+            label.textContent = "Barkod Oku";
+
+            if (codeReader) {
+                try { codeReader.reset(); } catch (_) {}
+            }
+            if (video && video.srcObject) {
+                video.srcObject.getTracks().forEach((t) => t.stop());
+                video.srcObject = null;
+            }
+        }
+
+        function toggleCamera() {
+            if (kameraAcik) {
+                kameraKapat();
+            } else {
+                kameraAc();
+            }
+        }
+    </script>
+</body>
+</html>
