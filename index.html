@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Kutay Fethiye - Barkod Sayım & Kabul</title>
+    <title>Kutay Fethiye - Barkod Kabul</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
@@ -89,7 +89,7 @@
             <i class="fa-solid fa-plus-circle text-base"></i> Ekle
         </button>
 
-        <!-- Sayım / Kabul Listesi -->
+        <!-- Okutulan Parçalar -->
         <section class="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-2.5">
             <div class="flex items-center justify-between border-b border-slate-800 pb-2">
                 <h2 class="text-xs font-bold uppercase tracking-wider text-slate-200 flex items-center gap-1.5">
@@ -206,8 +206,8 @@
             return known;
         }
 
-        // Okunan kodun sonunda barkod/etiket kaynaklı fazla "1" varsa ve kırpılmış hali listede varsa düzelt
-        function normalizeScannedCode(rawVal) {
+        // Sonuna barkod/okuyucu kaynaklı fazla "1" gelmişse ve kırpılmış hali listede varsa düzelt
+        function normalizePartCode(rawVal, fromBarcode = false) {
             const base = cleanCode(rawVal);
             if (!base) return '';
 
@@ -215,9 +215,9 @@
             if (knownSet.has(base)) return base;
 
             if (base.endsWith('1') && base.length > 4) {
-                const withoutTrailing1 = base.slice(0, -1);
-                if (knownSet.has(withoutTrailing1)) {
-                    return withoutTrailing1;
+                const without1 = base.slice(0, -1);
+                if (knownSet.has(without1) || fromBarcode) {
+                    return without1;
                 }
             }
 
@@ -598,7 +598,7 @@
             stopBarcodeScan();
 
             const rawCleaned = cleanCode(rawText);
-            const code = normalizeScannedCode(rawText);
+            const code = normalizePartCode(rawText, true);
             if (!code) return;
 
             const inputEl = document.getElementById('parcaNoInput');
@@ -607,9 +607,9 @@
 
             const shelf = getShelfForCode(code);
             const shelfPart = shelf ? ` • Raf: ${shelf}` : '';
-            const trimmedNote = rawCleaned !== code ? ` (sonundaki 1 düzeltildi)` : '';
+            const fixedNote = rawCleaned !== code ? ` (sonundaki 1 kaldırıldı)` : '';
 
-            setStatusMsg(`Ham: "${rawText}" → ${code}${trimmedNote}${shelfPart}`);
+            setStatusMsg(`Okunan: "${rawText}" → ${code}${fixedNote}${shelfPart}`);
             if (navigator.vibrate) navigator.vibrate(80);
         }
 
@@ -724,7 +724,7 @@
 
             const pInput = document.getElementById('parcaNoInput');
             const qInput = document.getElementById('adetInput');
-            const kod = normalizeScannedCode(pInput.value);
+            const kod = normalizePartCode(pInput.value, false);
             const adet = parseInt(qInput.value, 10) || 1;
 
             if (!kod) {
