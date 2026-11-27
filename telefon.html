@@ -128,8 +128,10 @@
         let codeReader = null;
         let lastScanTime = 0;
         let lastScanCode = "";
+        let lastCleanedInput = "";
+        let lastCleanedInputTime = 0;
 
-        // 172025527R1 -> 172025527R gibi sonuna yapışan tekil "1" karakterini temizler
+        // 172025527R1 -> 172025527R gibi kodun sonuna yapışan tekil "1" karakterini temizler
         function cleanCode(val) {
             let s = String(val || "").trim().toUpperCase();
             s = s.replace(/^P[\s\-:\/]*/i, "");
@@ -141,25 +143,48 @@
             return s;
         }
 
-        function syncBarcodeInput() {
+        function sanitizeBarcodeInputNow() {
             const inp = document.getElementById("barcodeInput");
             const raw = String(inp.value || "");
-            const cleaned = cleanCode(raw);
-            if (cleaned && cleaned !== raw.trim().toUpperCase()) {
+            const now = Date.now();
+            let cleaned = cleanCode(raw);
+
+            // Okuyucu veya tarayıcı kodu önce 172025527R olarak yazıp birkaç ms sonra sonuna "1" eklerse yakala
+            if (
+                lastCleanedInput &&
+                now - lastCleanedInputTime < 600 &&
+                cleaned === lastCleanedInput + "1"
+            ) {
+                cleaned = lastCleanedInput;
+            }
+
+            if (cleaned && raw.toUpperCase() !== cleaned) {
                 inp.value = cleaned;
             }
+
+            if (cleaned) {
+                lastCleanedInput = cleaned;
+                lastCleanedInputTime = now;
+            }
+
             return cleaned;
         }
 
         const barcodeInputEl = document.getElementById("barcodeInput");
         ["input", "change", "blur"].forEach(ev => {
-            barcodeInputEl.addEventListener(ev, () => syncBarcodeInput());
+            barcodeInputEl.addEventListener(ev, () => {
+                sanitizeBarcodeInputNow();
+                setTimeout(() => sanitizeBarcodeInputNow(), 30);
+            });
         });
-        barcodeInputEl.addEventListener("paste", () => setTimeout(() => syncBarcodeInput(), 10));
+        barcodeInputEl.addEventListener("paste", () => {
+            setTimeout(() => sanitizeBarcodeInputNow(), 15);
+            setTimeout(() => sanitizeBarcodeInputNow(), 60);
+        });
         barcodeInputEl.addEventListener("keydown", (e) => {
             if (e.key === "Enter") {
                 e.preventDefault();
-                submitCurrentCode();
+                setTimeout(() => submitCurrentCode(), 20);
             }
         });
 
@@ -255,8 +280,8 @@
         }
 
         async function submitCurrentCode(rawOverride = "") {
-            const rawInput = rawOverride || barcodeInputEl.value;
-            const cleaned = cleanCode(rawInput);
+            const rawInput = String(rawOverride || barcodeInputEl.value || "");
+            const cleaned = cleanCode(rawInput || sanitizeBarcodeInputNow());
             const qty = Math.max(1, parseInt(document.getElementById("qtyInput").value, 10) || 1);
 
             if (!cleaned) {
@@ -280,6 +305,7 @@
                 });
                 showReadResult(rawInput, cleaned, `${cleaned} (${qty} adet) irsaliyeye işlendi.`);
                 barcodeInputEl.value = "";
+                lastCleanedInput = "";
                 document.getElementById("qtyInput").value = "1";
                 barcodeInputEl.focus();
                 return;
@@ -314,6 +340,7 @@
             });
             showReadResult(rawInput, cleaned, `${cleaned} (${qty} adet) ${plate} plakasına kaydedildi.`);
             barcodeInputEl.value = "";
+            lastCleanedInput = "";
             document.getElementById("qtyInput").value = "1";
             barcodeInputEl.focus();
         }
@@ -322,13 +349,13 @@
             const now = Date.now();
             const cleaned = cleanCode(rawText);
             if (!cleaned) return;
-            if (cleaned === lastScanCode && now - lastScanTime < 1400) return;
+            if (cleaned === lastScanCode && now - lastScanTime < 1500) return;
             lastScanCode = cleaned;
             lastScanTime = now;
 
             barcodeInputEl.value = cleaned;
             showReadResult(rawText, cleaned, "Kamera okudu ve temizledi.");
-            submitCurrentCode(rawText);
+            submitCurrentCode(cleaned);
         }
 
         async function startCameraScanner() {
