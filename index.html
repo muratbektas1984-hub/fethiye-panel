@@ -3,129 +3,110 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Kutay Fethiye - Barkod Kabul</title>
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>Kutay Fethiye - Mobil Barkod & İrsaliye</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
-    <script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
+    <script src="https://unpkg.com/@zxing/library@0.20.0/umd/index.min.js"></script>
     <style>
         body { touch-action: manipulation; }
+        #scannerVideo { width: 100%; max-height: 240px; object-fit: cover; border-radius: 0.75rem; background: #0f172a; }
     </style>
 </head>
-<body class="bg-slate-950 text-white min-h-screen flex flex-col">
-
-    <header class="bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center justify-between sticky top-0 z-20">
+<body class="bg-slate-950 text-slate-100 min-h-screen pb-10 font-sans">
+    <header class="bg-slate-900 border-b border-slate-800 sticky top-0 z-30 px-4 py-3 flex items-center justify-between">
         <div class="flex items-center gap-2.5">
-            <div class="bg-blue-600 p-2 rounded-lg">
-                <i class="fa-solid fa-barcode text-sm text-white"></i>
+            <div class="bg-blue-600 p-2 rounded-lg text-white">
+                <i class="fa-solid fa-barcode text-lg"></i>
             </div>
             <div>
-                <h1 class="text-sm font-bold leading-tight">Kutay Fethiye - Barkod Kabul</h1>
-                <p id="sessionInfo" class="text-[11px] text-amber-300 font-semibold">İrsaliye oturumu bekleniyor...</p>
+                <h1 class="text-sm font-black tracking-tight text-white">Kutay Fethiye - Mobil Okutma</h1>
+                <p id="connStatus" class="text-[11px] font-bold text-amber-300">Bağlanıyor...</p>
             </div>
         </div>
-        <button type="button" id="connStatus" onclick="forceReconnect()" class="text-[11px] font-bold text-amber-300 text-right">
-            <i class="fa-solid fa-circle text-[8px]"></i> Bağlanıyor...
+        <button type="button" onclick="toggleCameraScanner()" id="camToggleBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-lg flex items-center gap-1.5">
+            <i class="fa-solid fa-camera"></i> <span id="camToggleLabel">Kamerayı Aç</span>
         </button>
     </header>
 
-    <main class="flex-1 max-w-md w-full mx-auto p-3 space-y-3 pb-10">
+    <main class="max-w-md mx-auto p-3 space-y-4">
+        <!-- Kamera Barkod Okuyucu -->
+        <section id="scannerBox" class="hidden bg-slate-900 border border-slate-700 rounded-xl p-3 space-y-2">
+            <div class="flex items-center justify-between text-xs">
+                <span class="font-bold text-emerald-400"><i class="fa-solid fa-qrcode mr-1"></i> Barkodu Okutun</span>
+                <button type="button" onclick="stopCameraScanner()" class="text-rose-400 font-bold">Kapat</button>
+            </div>
+            <video id="scannerVideo" playsinline muted></video>
+            <p id="scannerHint" class="text-[11px] text-slate-400">Barkodu kameraya tutun; okunan kod otomatik temizlenir.</p>
+        </section>
 
-        <!-- Kamera Görüntüsü -->
-        <section class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
-            <div class="relative w-full h-56 bg-black flex items-center justify-center">
-                <video id="barcodeVideo" class="w-full h-full object-cover" playsinline autoplay muted></video>
-                <div id="barcodeLaserBox" class="hidden pointer-events-none absolute inset-x-5 h-20 border-2 border-emerald-400 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]"></div>
-                <div id="barcodeIdleView" class="absolute inset-0 flex flex-col items-center justify-center text-slate-400 text-xs font-semibold px-4 text-center bg-slate-900/90">
-                    <i class="fa-solid fa-barcode text-2xl mb-2 text-blue-400"></i>
-                    <span>Barkod okutmak için "Barkod Oku" butonuna basın.</span>
+        <!-- Mod Seçimi -->
+        <div class="grid grid-cols-2 gap-2 bg-slate-900 p-1 rounded-xl border border-slate-800">
+            <button type="button" id="modeWaybillBtn" onclick="setScanMode('waybill')" class="bg-amber-600 text-white text-xs font-black py-2.5 rounded-lg">
+                İrsaliye Kabul
+            </button>
+            <button type="button" id="modeOrderBtn" onclick="setScanMode('order')" class="bg-slate-800 text-slate-300 text-xs font-bold py-2.5 rounded-lg">
+                Sipariş / Parça Giriş
+            </button>
+        </div>
+
+        <!-- Parça Okutma / Giriş Kutusu -->
+        <section class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
+            <div class="flex items-center justify-between">
+                <label for="barcodeInput" class="text-xs font-black uppercase text-amber-300">Parça Numarası</label>
+                <span id="activeWaybillBadge" class="text-[11px] font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300">İrsaliye: -</span>
+            </div>
+
+            <div class="flex gap-2">
+                <input type="text" id="barcodeInput" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" placeholder="Örn: 172025527R" class="flex-1 bg-slate-950 border border-amber-500 rounded-lg px-3 py-2.5 text-sm font-mono font-black text-emerald-300 uppercase focus:outline-none focus:ring-2 focus:ring-amber-500">
+                <input type="number" id="qtyInput" min="1" value="1" class="w-20 bg-slate-950 border border-slate-700 rounded-lg px-2 py-2.5 text-sm font-bold text-center text-white">
+            </div>
+
+            <div id="orderExtraFields" class="hidden space-y-2.5 pt-1">
+                <div class="grid grid-cols-2 gap-2">
+                    <input type="text" id="plateInput" placeholder="Plaka (Örn: 48ABC123)" class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs font-bold uppercase text-white">
+                    <input type="text" id="advisorInput" placeholder="Danışman" class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs font-semibold text-white">
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <select id="deptInput" class="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs font-bold text-white">
+                        <option value="Mekanik">Mekanik</option>
+                        <option value="Kaporta">Kaporta</option>
+                    </select>
+                    <input type="text" id="descInput" placeholder="Parça Açıklaması" class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs font-semibold text-white">
                 </div>
             </div>
-            <div class="px-3 py-2 bg-slate-900/95 border-t border-slate-800 flex items-center justify-between text-[11px]">
-                <span id="barcodeStatusText" class="text-slate-300 font-medium truncate">Hazır</span>
-                <button type="button" onclick="stopBarcodeScan()" class="text-rose-400 hover:text-rose-300 font-bold ml-2 shrink-0">
-                    <i class="fa-solid fa-stop mr-1"></i>Kapat
-                </button>
+
+            <button type="button" onclick="submitCurrentCode()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-black text-xs py-3 rounded-xl shadow flex items-center justify-center gap-2">
+                <i class="fa-solid fa-check-circle"></i> <span id="submitBtnText">İrsaliyeye İşle</span>
+            </button>
+
+            <div id="lastResultBox" class="hidden bg-slate-950 border border-emerald-700/60 rounded-lg p-3 text-xs space-y-1">
+                <div class="flex items-center justify-between">
+                    <span class="text-slate-400">Son Okunan Ham:</span>
+                    <span id="rawReadText" class="font-mono text-rose-300">-</span>
+                </div>
+                <div class="flex items-center justify-between">
+                    <span class="text-slate-400">Temizlenen Kod:</span>
+                    <span id="cleanedReadText" class="font-mono font-black text-emerald-400 text-sm">-</span>
+                </div>
+                <p id="resultFeedback" class="text-[11px] font-bold text-amber-200 pt-1"></p>
             </div>
         </section>
 
-        <!-- Barkod Oku Butonu -->
-        <button type="button" id="barkodOkuBtn" onclick="startBarcodeScan()" class="w-full bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white font-bold py-3 rounded-xl shadow transition flex items-center justify-center gap-2 text-sm">
-            <i class="fa-solid fa-barcode text-base"></i> Barkod Oku
-        </button>
-
-        <!-- Parça No -->
-        <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-1.5">
-            <div class="flex items-center justify-between gap-2">
-                <label for="parcaNoInput" class="block text-xs font-bold text-slate-300">Parça No</label>
-                <span id="matchBadge" class="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300">Eşleşme bekleniyor</span>
-            </div>
-            <input
-                type="text"
-                id="parcaNoInput"
-                autocomplete="off"
-                autocorrect="off"
-                autocapitalize="characters"
-                spellcheck="false"
-                oninput="refreshMatchBadge()"
-                placeholder="Barkod okutun veya parça no girin"
-                class="w-full bg-slate-950 border border-slate-700 focus:border-blue-500 rounded-lg px-3 py-2.5 text-sm font-mono font-bold text-emerald-400 uppercase focus:outline-none"
-            >
-            <div class="flex items-center justify-between text-[11px] pt-0.5">
-                <span class="text-slate-400">Raf Yeri:</span>
-                <span id="shelfInfoText" class="font-mono font-bold text-amber-300">Raf bilgisi yok</span>
-            </div>
-        </div>
-
-        <!-- Adet -->
-        <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-1">
-            <label for="adetInput" class="block text-xs font-bold text-slate-300">Adet</label>
-            <input type="number" id="adetInput" min="1" value="1" class="w-full bg-slate-950 border border-slate-700 focus:border-blue-500 rounded-lg px-3 py-2.5 text-sm font-bold text-white focus:outline-none">
-        </div>
-
-        <!-- Ekle -->
-        <button type="button" id="ekleBtn" onclick="addPartToSession()" class="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-black py-3.5 rounded-xl shadow-lg transition flex items-center justify-center gap-2 text-sm">
-            <i class="fa-solid fa-plus-circle text-base"></i> Ekle
-        </button>
-
-        <!-- Okutulan Parçalar -->
-        <section class="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-2.5">
-            <div class="flex items-center justify-between border-b border-slate-800 pb-2">
-                <h2 class="text-xs font-bold uppercase tracking-wider text-slate-200 flex items-center gap-1.5">
-                    <i class="fa-solid fa-list-check text-emerald-400"></i> Okutulan Parçalar
-                </h2>
-                <span id="countSummary" class="text-[11px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded-full">0 / 0</span>
-            </div>
-            <div id="scannedListBox" class="divide-y divide-slate-800 text-xs">
-                <p class="py-4 text-center text-slate-500">Henüz parça eklenmedi.</p>
-            </div>
-        </section>
-
-        <!-- Raf Listesi Kaynağı (CSV / JSON) -->
-        <section class="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-2">
-            <div class="flex items-center justify-between">
-                <span class="text-[11px] font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-                    <i class="fa-solid fa-layer-group text-amber-400"></i> Raf Listesi (CSV / JSON)
-                </span>
-                <span id="shelfCountBadge" class="text-[10px] font-bold bg-slate-800 text-slate-300 px-2 py-0.5 rounded">0 Kayıt</span>
-            </div>
-            <p class="text-[11px] text-slate-400 leading-snug">
-                Diğer sistemden alınan <code class="text-slate-200">parca_no,raf_yeri</code> CSV veya JSON dosyasını seçin ya da Firebase <code class="text-slate-200">kutay_fethiye_raf_yerleri</code> düğümünü kullanın.
-            </p>
-            <div class="flex items-center gap-2">
-                <label class="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold py-2 px-3 rounded-lg cursor-pointer text-center transition">
-                    <i class="fa-solid fa-file-arrow-up mr-1 text-amber-400"></i> Dosya Yükle
-                    <input type="file" id="shelfFileInput" accept=".csv,.txt,.json" onchange="handleShelfFileUpload(event)" class="hidden">
-                </label>
-                <button type="button" onclick="clearLocalShelfMap()" class="bg-slate-800 hover:bg-rose-950 text-slate-300 hover:text-rose-300 text-xs font-bold py-2 px-3 rounded-lg transition">
-                    Temizle
-                </button>
+        <!-- Aktif İrsaliye Listesi -->
+        <section id="waybillListSection" class="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-2">
+            <h2 class="text-xs font-black uppercase text-slate-300">Aktif İrsaliye Durumu</h2>
+            <div id="waybillItemsContainer" class="divide-y divide-slate-800 text-xs">
+                <p class="py-4 text-center text-slate-500">Aktif irsaliye oturumu bekleniyor...</p>
             </div>
         </section>
     </main>
 
     <script>
+        const MOBIL_KULLANICI = "Mobil Cihaz";
         const firebaseConfig = {
             apiKey: "AIzaSyCkXKhtHVj3wImlSOI7vNfv4LAFLmrtqYc",
             authDomain: "siparis-takip-4d2a7.firebaseapp.com",
@@ -137,649 +118,284 @@
             measurementId: "G-FLCPTLX79X"
         };
 
-        const DB_BASE_URL = firebaseConfig.databaseURL.replace(/\/+$/, '');
-        const SESSION_PATH = 'kutay_fethiye_aktif_kabul';
-        const SHELF_DB_PATH = 'kutay_fethiye_raf_yerleri';
-        const LOCAL_SHELF_KEY = 'kutay_fethiye_local_raf_yerleri';
+        const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
+        const db = firebase.database(app);
+        const ordersRef = db.ref("kutay_fethiye_orders");
+        const wbRef = db.ref("kutay_fethiye_aktif_kabul");
 
-        let db = null;
-        let kabulRef = null;
-        let rafRef = null;
-        let currentSession = null;
-        let scannedItems = [];
-        let isRealtimeOnline = false;
+        let scanMode = "waybill";
+        let activeWb = null;
+        let codeReader = null;
+        let lastScanTime = 0;
+        let lastScanCode = "";
 
-        let localShelfMap = {};
-        let remoteShelfMap = {};
-
-        let mediaStream = null;
-        let scanLoopId = null;
-        let zxingScanner = null;
-        let nativeDetector = null;
-        let scanningActive = false;
-        let isAddingPart = false;
-
-        function setConnBadge(text, colorClass) {
-            const el = document.getElementById('connStatus');
-            if (!el) return;
-            el.className = `text-[11px] font-bold ${colorClass} text-right`;
-            el.innerHTML = `<i class="fa-solid fa-circle text-[8px]"></i> ${text}`;
-        }
-
-        function setStatusMsg(msg, isErr = false) {
-            const el = document.getElementById('barcodeStatusText');
-            if (!el) return;
-            el.className = isErr ? 'text-rose-400 font-bold truncate' : 'text-emerald-300 font-semibold truncate';
-            el.innerText = msg;
-        }
-
+        // 172025527R1 -> 172025527R gibi sonuna yapışan tekil "1" karakterini temizler
         function cleanCode(val) {
-            let s = String(val || '').trim().toUpperCase();
-            s = s.replace(/^P[\s\-:\/]*/i, '');
-            s = s.replace(/[^A-Z0-9]/g, '');
-            s = s.replace(/^P+/, '');
+            let s = String(val || "").trim().toUpperCase();
+            s = s.replace(/^P[\s\-:\/]*/i, "");
+            s = s.replace(/[^A-Z0-9]/g, "");
+            s = s.replace(/^P+/, "");
+            if (/^[A-Z0-9]{6,}1$/.test(s)) {
+                s = s.slice(0, -1);
+            }
             return s;
         }
 
-        function getKnownExpectedCodesSet() {
-            const known = new Set();
-            if (!currentSession || typeof currentSession !== 'object') return known;
-
-            if (currentSession.beklenen && typeof currentSession.beklenen === 'object') {
-                Object.keys(currentSession.beklenen).forEach(k => {
-                    const c = cleanCode(k);
-                    if (c) known.add(c);
-                });
+        function syncBarcodeInput() {
+            const inp = document.getElementById("barcodeInput");
+            const raw = String(inp.value || "");
+            const cleaned = cleanCode(raw);
+            if (cleaned && cleaned !== raw.trim().toUpperCase()) {
+                inp.value = cleaned;
             }
+            return cleaned;
+        }
 
-            if (currentSession.parcalar && typeof currentSession.parcalar === 'object') {
-                const entries = Array.isArray(currentSession.parcalar)
-                    ? currentSession.parcalar
-                    : Object.values(currentSession.parcalar);
-                entries.forEach(entry => {
-                    if (!entry) return;
-                    const c = cleanCode(typeof entry === 'object' ? (entry.kod || entry.parcaNo || entry.code) : entry);
-                    if (c) known.add(c);
-                });
+        const barcodeInputEl = document.getElementById("barcodeInput");
+        ["input", "change", "blur"].forEach(ev => {
+            barcodeInputEl.addEventListener(ev, () => syncBarcodeInput());
+        });
+        barcodeInputEl.addEventListener("paste", () => setTimeout(() => syncBarcodeInput(), 10));
+        barcodeInputEl.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                submitCurrentCode();
             }
+        });
 
-            return known;
-        }
-
-        // Sonuna barkod/okuyucu kaynaklı fazla "1" gelmişse ve kırpılmış hali listede varsa düzelt
-        function normalizePartCode(rawVal, fromBarcode = false) {
-            const base = cleanCode(rawVal);
-            if (!base) return '';
-
-            const knownSet = getKnownExpectedCodesSet();
-            if (knownSet.has(base)) return base;
-
-            if (base.endsWith('1') && base.length > 4) {
-                const without1 = base.slice(0, -1);
-                if (knownSet.has(without1) || fromBarcode) {
-                    return without1;
-                }
+        db.ref(".info/connected").on("value", (snap) => {
+            const el = document.getElementById("connStatus");
+            if (snap.val() === true) {
+                el.className = "text-[11px] font-bold text-emerald-400";
+                el.textContent = "Online (Bağlı)";
+            } else {
+                el.className = "text-[11px] font-bold text-amber-300";
+                el.textContent = "Bağlanıyor...";
             }
+        });
 
-            return base;
-        }
+        wbRef.on("value", (snap) => {
+            activeWb = snap.val() || null;
+            renderWaybillSummary();
+        });
 
-        function loadLocalShelfMap() {
-            try {
-                const raw = localStorage.getItem(LOCAL_SHELF_KEY);
-                const parsed = raw ? JSON.parse(raw) : {};
-                localShelfMap = parsed && typeof parsed === 'object' ? parsed : {};
-            } catch (e) {
-                localShelfMap = {};
+        function setScanMode(mode) {
+            scanMode = mode;
+            const wbBtn = document.getElementById("modeWaybillBtn");
+            const ordBtn = document.getElementById("modeOrderBtn");
+            const extra = document.getElementById("orderExtraFields");
+            const submitText = document.getElementById("submitBtnText");
+            const wbSection = document.getElementById("waybillListSection");
+
+            if (mode === "waybill") {
+                wbBtn.className = "bg-amber-600 text-white text-xs font-black py-2.5 rounded-lg";
+                ordBtn.className = "bg-slate-800 text-slate-300 text-xs font-bold py-2.5 rounded-lg";
+                extra.classList.add("hidden");
+                wbSection.classList.remove("hidden");
+                submitText.textContent = "İrsaliyeye İşle";
+            } else {
+                ordBtn.className = "bg-blue-600 text-white text-xs font-black py-2.5 rounded-lg";
+                wbBtn.className = "bg-slate-800 text-slate-300 text-xs font-bold py-2.5 rounded-lg";
+                extra.classList.remove("hidden");
+                wbSection.classList.add("hidden");
+                submitText.textContent = "Siparişe Kaydet";
             }
-            updateShelfBadgeCount();
         }
 
-        function saveLocalShelfMap() {
-            try {
-                localStorage.setItem(LOCAL_SHELF_KEY, JSON.stringify(localShelfMap));
-            } catch (e) {}
-            updateShelfBadgeCount();
+        function showReadResult(rawCode, cleanedCode, message) {
+            document.getElementById("lastResultBox").classList.remove("hidden");
+            document.getElementById("rawReadText").textContent = rawCode || "-";
+            document.getElementById("cleanedReadText").textContent = cleanedCode || "-";
+            document.getElementById("resultFeedback").textContent = message;
         }
 
-        function getCombinedShelfMap() {
-            const merged = {};
-            Object.entries(remoteShelfMap).forEach(([k, v]) => {
-                if (k && v) merged[k] = v;
-            });
-            Object.entries(localShelfMap).forEach(([k, v]) => {
-                if (k && v) merged[k] = v;
-            });
-            return merged;
-        }
-
-        function getShelfForCode(code) {
-            const c = cleanCode(code);
-            if (!c) return '';
-            const map = getCombinedShelfMap();
-            return map[c] || '';
-        }
-
-        function updateShelfBadgeCount() {
-            const el = document.getElementById('shelfCountBadge');
-            if (!el) return;
-            const total = Object.keys(getCombinedShelfMap()).length;
-            el.innerText = `${total} Kayıt`;
-        }
-
-        function parseShelfPayload(rawData) {
-            const nextMap = {};
-            if (!rawData) return nextMap;
-
-            if (typeof rawData === 'object' && !Array.isArray(rawData)) {
-                Object.entries(rawData).forEach(([k, v]) => {
-                    if (v && typeof v === 'object') {
-                        const c = cleanCode(v.kod || v.parcaNo || v.parca_no || v.code || k);
-                        const shelf = String(v.raf || v.rafYeri || v.raf_yeri || v.shelf || '').trim();
-                        if (c && shelf) nextMap[c] = shelf;
-                    } else {
-                        const c = cleanCode(k);
-                        const shelf = String(v || '').trim();
-                        if (c && shelf) nextMap[c] = shelf;
-                    }
-                });
-                return nextMap;
-            }
-
-            if (Array.isArray(rawData)) {
-                rawData.forEach(item => {
-                    if (item && typeof item === 'object') {
-                        const c = cleanCode(item.kod || item.parcaNo || item.parca_no || item.code);
-                        const shelf = String(item.raf || item.rafYeri || item.raf_yeri || item.shelf || '').trim();
-                        if (c && shelf) nextMap[c] = shelf;
-                    }
-                });
-            }
-            return nextMap;
-        }
-
-        function handleShelfFileUpload(event) {
-            const file = event.target.files && event.target.files[0];
-            if (!file) return;
-
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const text = String(e.target.result || '').trim();
-                if (!text) return;
-
-                let imported = {};
-                if (text.startsWith('{') || text.startsWith('[')) {
-                    try {
-                        imported = parseShelfPayload(JSON.parse(text));
-                    } catch (err) {
-                        setStatusMsg('JSON raf dosyası okunamadı.', true);
-                        return;
-                    }
-                } else {
-                    const lines = text.split(/\r?\n/).filter(Boolean);
-                    lines.forEach((line, idx) => {
-                        const delimiter = line.includes(';') ? ';' : (line.includes('\t') ? '\t' : ',');
-                        const parts = line.split(delimiter).map(s => s.replace(/^["']|["']$/g, '').trim());
-                        if (parts.length < 2) return;
-                        const firstLower = parts[0].toLowerCase();
-                        if (idx === 0 && (firstLower.includes('parca') || firstLower.includes('kod') || firstLower === 'code')) {
-                            return;
-                        }
-                        const c = cleanCode(parts[0]);
-                        const shelf = parts[1];
-                        if (c && shelf) imported[c] = shelf;
-                    });
-                }
-
-                const count = Object.keys(imported).length;
-                if (count === 0) {
-                    setStatusMsg('Dosyada geçerli Parça No + Raf Yeri bulunamadı.', true);
-                    return;
-                }
-
-                localShelfMap = { ...localShelfMap, ...imported };
-                saveLocalShelfMap();
-                refreshMatchBadge();
-                renderList();
-                setStatusMsg(`${count} adet parça raf yeri yüklendi.`);
-            };
-            reader.readAsText(file, 'UTF-8');
-            event.target.value = '';
-        }
-
-        function clearLocalShelfMap() {
-            localShelfMap = {};
-            saveLocalShelfMap();
-            refreshMatchBadge();
-            renderList();
-            setStatusMsg('Yerel raf listesi temizlendi.');
-        }
-
-        function getExpectedTotals() {
-            const map = {};
-            if (currentSession && currentSession.beklenen && typeof currentSession.beklenen === 'object') {
-                Object.entries(currentSession.beklenen).forEach(([k, v]) => {
-                    const c = cleanCode(k);
-                    if (c) map[c] = (map[c] || 0) + (parseInt(v, 10) || 1);
-                });
-            }
-            return map;
-        }
-
-        function getScannedTotals() {
-            const map = {};
-            scannedItems.forEach(item => {
-                const c = cleanCode(item.kod);
-                if (c) map[c] = (map[c] || 0) + (parseInt(item.adet, 10) || 1);
-            });
-            return map;
-        }
-
-        function refreshMatchBadge() {
-            const badge = document.getElementById('matchBadge');
-            const shelfEl = document.getElementById('shelfInfoText');
-            const rawInput = document.getElementById('parcaNoInput').value;
-            const c = cleanCode(rawInput);
-
-            if (!c) {
-                badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300';
-                badge.innerText = 'Eşleşme bekleniyor';
-                if (shelfEl) {
-                    shelfEl.className = 'font-mono font-bold text-slate-400';
-                    shelfEl.innerText = 'Raf bilgisi yok';
-                }
+        function renderWaybillSummary() {
+            const badge = document.getElementById("activeWaybillBadge");
+            const container = document.getElementById("waybillItemsContainer");
+            if (!activeWb || !activeWb.active) {
+                badge.textContent = "İrsaliye: Kapalı";
+                container.innerHTML = '<p class="py-4 text-center text-slate-500">Aktif irsaliye oturumu kapalı.</p>';
                 return;
             }
 
-            const shelf = getShelfForCode(c);
-            if (shelfEl) {
-                if (shelf) {
-                    shelfEl.className = 'font-mono font-bold text-amber-300';
-                    shelfEl.innerText = shelf;
-                } else {
-                    shelfEl.className = 'font-mono font-bold text-slate-500';
-                    shelfEl.innerText = 'Tanımlı değil';
-                }
+            badge.textContent = `İrsaliye: ${activeWb.irsaliyeNo || "Aktif"}`;
+            const expMap = {};
+            if (activeWb.beklenen) {
+                Object.entries(activeWb.beklenen).forEach(([k, v]) => {
+                    const c = cleanCode(k);
+                    if (c) expMap[c] = (expMap[c] || 0) + (parseInt(v, 10) || 1);
+                });
             }
-
-            const expMap = getExpectedTotals();
-            const scMap = getScannedTotals();
-            const expQty = expMap[c];
-            const scQty = scMap[c] || 0;
-
-            if (typeof expQty === 'number') {
-                badge.className = scQty < expQty
-                    ? 'text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700'
-                    : 'text-[10px] font-bold px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-700';
-                badge.innerText = `İrsaliyede var (${scQty}/${expQty})`;
-            } else if (Object.keys(expMap).length > 0) {
-                badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-700';
-                badge.innerText = 'İrsaliyede Yok';
-            } else {
-                badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-700';
-                badge.innerText = `Okunan: ${scQty}`;
+            const scMap = {};
+            if (activeWb.okutulanlar) {
+                Object.values(activeWb.okutulanlar).forEach(item => {
+                    if (!item) return;
+                    const c = cleanCode(item.kod);
+                    if (c) scMap[c] = (scMap[c] || 0) + (parseInt(item.adet, 10) || 1);
+                });
             }
-        }
-
-        function applySessionData(data) {
-            currentSession = data && typeof data === 'object' ? data : null;
-            const infoEl = document.getElementById('sessionInfo');
-
-            const isActive = !!(
-                currentSession &&
-                (currentSession.active === true ||
-                 currentSession.active === 'true' ||
-                 currentSession.irsaliyeNo ||
-                 currentSession.beklenen)
-            );
-
-            if (isActive) {
-                infoEl.className = 'text-[11px] text-emerald-400 font-bold';
-                infoEl.innerText = `Aktif İrsaliye: ${currentSession.irsaliyeNo || 'Açık Oturum'}`;
-                scannedItems = currentSession.okutulanlar && typeof currentSession.okutulanlar === 'object'
-                    ? Object.entries(currentSession.okutulanlar).map(([k, v]) => ({
-                        key: k,
-                        kod: cleanCode(v && v.kod),
-                        adet: parseInt(v && v.adet, 10) || 1,
-                        raf: (v && v.raf) || '',
-                        zaman: (v && v.zaman) || ''
-                    })).filter(x => x.kod).reverse()
-                    : [];
-            } else {
-                infoEl.className = 'text-[11px] text-amber-300 font-semibold';
-                infoEl.innerText = 'İrsaliye oturumu bekleniyor...';
-                scannedItems = [];
-            }
-
-            updateShelfBadgeCount();
-            renderList();
-        }
-
-        function renderList() {
-            const box = document.getElementById('scannedListBox');
-            const summary = document.getElementById('countSummary');
-            const expMap = getExpectedTotals();
-            const scMap = getScannedTotals();
-
-            const totalExp = Object.values(expMap).reduce((a, b) => a + b, 0);
-            const totalSc = Object.values(scMap).reduce((a, b) => a + b, 0);
-            summary.innerText = totalExp > 0 ? `${totalSc} / ${totalExp} Adet` : `${totalSc} Adet`;
 
             const keys = Array.from(new Set([...Object.keys(expMap), ...Object.keys(scMap)]));
             if (!keys.length) {
-                box.innerHTML = '<p class="py-4 text-center text-slate-500">Henüz parça eklenmedi.</p>';
-                refreshMatchBadge();
+                container.innerHTML = '<p class="py-4 text-center text-slate-500">Henüz kalem yok.</p>';
                 return;
             }
 
-            box.innerHTML = keys.map((code, idx) => {
-                const exp = expMap[code];
+            container.innerHTML = keys.map(code => {
+                const exp = expMap[code] || 0;
                 const sc = scMap[code] || 0;
-                const shelf = getShelfForCode(code);
-                let tag = `<span class="bg-blue-950 text-blue-200 border border-blue-800 font-bold px-2 py-1 rounded-lg">${sc} Okundu</span>`;
-
-                if (typeof exp === 'number') {
-                    if (sc === exp) {
-                        tag = `<span class="bg-emerald-950 text-emerald-300 border border-emerald-700 font-bold px-2 py-1 rounded-lg">Tamam (${sc}/${exp})</span>`;
-                    } else if (sc < exp) {
-                        tag = `<span class="bg-amber-950 text-amber-300 border border-amber-700 font-bold px-2 py-1 rounded-lg">Eksik (${sc}/${exp})</span>`;
-                    } else {
-                        tag = `<span class="bg-rose-950 text-rose-300 border border-rose-700 font-bold px-2 py-1 rounded-lg">Fazla (${sc}/${exp})</span>`;
-                    }
-                } else {
-                    tag = `<span class="bg-rose-950 text-rose-300 border border-rose-700 font-bold px-2 py-1 rounded-lg">İrsaliyede Yok (${sc})</span>`;
-                }
-
+                const color = sc === exp && exp > 0 ? "text-emerald-400" : "text-amber-300";
                 return `
-                    <div class="py-2.5 flex items-center justify-between gap-2">
-                        <div class="min-w-0">
-                            <div>
-                                <span class="text-slate-400 font-mono mr-1.5">${idx + 1}.</span>
-                                <span class="font-mono font-bold text-emerald-400 break-all">${code}</span>
-                            </div>
-                            ${shelf ? `<div class="text-[11px] font-mono text-amber-300 pl-4 mt-0.5"><i class="fa-solid fa-layer-group mr-1"></i>Raf: ${shelf}</div>` : ''}
-                        </div>
-                        <div class="shrink-0">${tag}</div>
+                    <div class="py-2 flex items-center justify-between">
+                        <span class="font-mono font-black text-white">${code}</span>
+                        <span class="font-mono font-bold ${color}">${sc} / ${exp}</span>
                     </div>
                 `;
-            }).join('');
-
-            refreshMatchBadge();
+            }).join("");
         }
 
-        async function fetchSessionFallback() {
-            const url = `${DB_BASE_URL}/${SESSION_PATH}.json`;
-            const res = await fetch(url, { cache: 'no-store' });
-            if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
-            }
-            const data = await res.json();
-            applySessionData(data);
+        async function submitCurrentCode(rawOverride = "") {
+            const rawInput = rawOverride || barcodeInputEl.value;
+            const cleaned = cleanCode(rawInput);
+            const qty = Math.max(1, parseInt(document.getElementById("qtyInput").value, 10) || 1);
 
-            try {
-                const shelfRes = await fetch(`${DB_BASE_URL}/${SHELF_DB_PATH}.json`, { cache: 'no-store' });
-                if (shelfRes.ok) {
-                    remoteShelfMap = parseShelfPayload(await shelfRes.json());
-                    updateShelfBadgeCount();
-                    refreshMatchBadge();
-                    renderList();
-                }
-            } catch (e) {}
-
-            if (!isRealtimeOnline) {
-                setConnBadge('Bağlı', 'text-emerald-400');
-            }
-        }
-
-        function initDatabase() {
-            loadLocalShelfMap();
-
-            if (!window.firebase || !window.firebase.database) {
-                fetchSessionFallback().catch((err) => {
-                    setConnBadge(`Bağlantı Yok (${err.message})`, 'text-rose-400');
-                });
+            if (!cleaned) {
+                alert("Lütfen geçerli bir parça numarası okutun veya girin.");
                 return;
             }
 
-            try {
-                if (!firebase.apps.length) {
-                    firebase.initializeApp(firebaseConfig);
+            barcodeInputEl.value = cleaned;
+
+            if (scanMode === "waybill") {
+                if (!activeWb || !activeWb.active) {
+                    showReadResult(rawInput, cleaned, "Aktif irsaliye oturumu açık değil.");
+                    return;
                 }
-                db = firebase.database();
-                kabulRef = db.ref(SESSION_PATH);
-                rafRef = db.ref(SHELF_DB_PATH);
-
-                db.ref('.info/connected').on('value', (snap) => {
-                    isRealtimeOnline = snap.val() === true;
-                    if (isRealtimeOnline) {
-                        setConnBadge('Bağlı', 'text-emerald-400');
-                    } else {
-                        fetchSessionFallback().catch(() => {
-                            setConnBadge('Bağlantı Yok (Yeniden Dene)', 'text-rose-400');
-                        });
-                    }
+                const scanKey = "sc_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6);
+                await wbRef.child("okutulanlar").child(scanKey).set({
+                    kod: cleaned,
+                    adet: qty,
+                    okutan: MOBIL_KULLANICI,
+                    zaman: new Date().toLocaleTimeString("tr-TR")
                 });
-
-                kabulRef.on('value', (snap) => {
-                    applySessionData(snap.val());
-                }, (err) => {
-                    setConnBadge(`Hata (${err.code || 'Okuma'})`, 'text-rose-400');
-                    setStatusMsg(`Veritabanı okuma hatası: ${err.message}`, true);
-                });
-
-                rafRef.on('value', (snap) => {
-                    remoteShelfMap = parseShelfPayload(snap.val());
-                    updateShelfBadgeCount();
-                    refreshMatchBadge();
-                    renderList();
-                }, () => {});
-            } catch (err) {
-                setConnBadge(`Bağlantı Yok (${err.message})`, 'text-rose-400');
-                fetchSessionFallback().catch(() => {});
-            }
-        }
-
-        async function forceReconnect() {
-            setConnBadge('Bağlanıyor...', 'text-amber-300');
-            try {
-                if (db) {
-                    db.goOnline();
-                }
-                await fetchSessionFallback();
-                setConnBadge('Bağlı', 'text-emerald-400');
-                setStatusMsg('Bağlantı güncellendi.');
-            } catch (err) {
-                setConnBadge(`Bağlantı Yok (${err.message})`, 'text-rose-400');
-                setStatusMsg(`Bağlantı hatası: ${err.message}`, true);
-            }
-        }
-
-        function onBarcodeDetected(rawText) {
-            stopBarcodeScan();
-
-            const rawCleaned = cleanCode(rawText);
-            const code = normalizePartCode(rawText, true);
-            if (!code) return;
-
-            const inputEl = document.getElementById('parcaNoInput');
-            inputEl.value = code;
-            refreshMatchBadge();
-
-            const shelf = getShelfForCode(code);
-            const shelfPart = shelf ? ` • Raf: ${shelf}` : '';
-            const fixedNote = rawCleaned !== code ? ` (sonundaki 1 kaldırıldı)` : '';
-
-            setStatusMsg(`Okunan: "${rawText}" → ${code}${fixedNote}${shelfPart}`);
-            if (navigator.vibrate) navigator.vibrate(80);
-        }
-
-        async function startBarcodeScan() {
-            if (scanningActive) {
-                stopBarcodeScan();
-            }
-
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                setStatusMsg('Tarayıcı kamera erişimini desteklemiyor.', true);
+                showReadResult(rawInput, cleaned, `${cleaned} (${qty} adet) irsaliyeye işlendi.`);
+                barcodeInputEl.value = "";
+                document.getElementById("qtyInput").value = "1";
+                barcodeInputEl.focus();
                 return;
             }
 
-            try {
-                scanningActive = true;
-                document.getElementById('barcodeIdleView').classList.add('hidden');
-                document.getElementById('barcodeLaserBox').classList.remove('hidden');
-                setStatusMsg('Kamera açılıyor...');
+            const plate = (document.getElementById("plateInput").value || "").trim().toUpperCase();
+            const advisor = (document.getElementById("advisorInput").value || "").trim();
+            const dept = document.getElementById("deptInput").value || "Mekanik";
+            const desc = (document.getElementById("descInput").value || "").trim() || "-";
 
-                const video = document.getElementById('barcodeVideo');
-                mediaStream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        facingMode: { ideal: 'environment' },
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 }
-                    },
-                    audio: false
-                });
+            if (!plate || !advisor) {
+                alert("Sipariş kaydı için Plaka ve Danışman alanlarını doldurun.");
+                return;
+            }
 
-                video.srcObject = mediaStream;
+            const newKey = "id_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6);
+            await ordersRef.child(newKey).set({
+                bolum: dept,
+                danisman: advisor,
+                aracPlakasi: plate,
+                parcaNumarasi: cleaned,
+                adet: qty,
+                parcaAciklamasi: desc,
+                siparisTipi: "",
+                bayiAdi: "",
+                stokDurumu: "",
+                siparisTarihi: "",
+                gelisTarihi: "",
+                siparisNumarasi: "",
+                aciklama: "",
+                guncelleyen: MOBIL_KULLANICI
+            });
+            showReadResult(rawInput, cleaned, `${cleaned} (${qty} adet) ${plate} plakasına kaydedildi.`);
+            barcodeInputEl.value = "";
+            document.getElementById("qtyInput").value = "1";
+            barcodeInputEl.focus();
+        }
+
+        function handleDecodedBarcode(rawText) {
+            const now = Date.now();
+            const cleaned = cleanCode(rawText);
+            if (!cleaned) return;
+            if (cleaned === lastScanCode && now - lastScanTime < 1400) return;
+            lastScanCode = cleaned;
+            lastScanTime = now;
+
+            barcodeInputEl.value = cleaned;
+            showReadResult(rawText, cleaned, "Kamera okudu ve temizledi.");
+            submitCurrentCode(rawText);
+        }
+
+        async function startCameraScanner() {
+            const box = document.getElementById("scannerBox");
+            const video = document.getElementById("scannerVideo");
+            const label = document.getElementById("camToggleLabel");
+            box.classList.remove("hidden");
+            label.textContent = "Kamerayı Kapat";
+
+            if (window.ZXing && ZXing.BrowserMultiFormatReader) {
+                if (!codeReader) {
+                    codeReader = new ZXing.BrowserMultiFormatReader();
+                }
+                try {
+                    await codeReader.decodeFromVideoDevice(null, video, (result) => {
+                        if (result && result.getText) {
+                            handleDecodedBarcode(result.getText());
+                        }
+                    });
+                    return;
+                } catch (_) {}
+            }
+
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+                video.srcObject = stream;
                 await video.play();
-
-                if ('BarcodeDetector' in window) {
-                    try {
-                        nativeDetector = new BarcodeDetector({
-                            formats: ['code_128', 'code_39', 'code_93', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'qr_code', 'data_matrix', 'itf']
-                        });
-                    } catch (e) {
-                        nativeDetector = null;
-                    }
-                }
-
-                if (window.ZXing && window.ZXing.BrowserMultiFormatReader) {
-                    zxingScanner = new ZXing.BrowserMultiFormatReader();
-                }
-
-                setStatusMsg('Barkodu çerçeveye tutun...');
-
-                const tempCanvas = document.createElement('canvas');
-                const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
-
-                scanLoopId = setInterval(async () => {
-                    if (!scanningActive || video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
-
-                    if (nativeDetector) {
+                if ("BarcodeDetector" in window) {
+                    const detector = new BarcodeDetector();
+                    const scanLoop = async () => {
+                        if (box.classList.contains("hidden")) return;
                         try {
-                            const found = await nativeDetector.detect(video);
-                            if (found && found.length > 0 && found[0].rawValue) {
-                                onBarcodeDetected(found[0].rawValue);
-                                return;
+                            const codes = await detector.detect(video);
+                            if (codes.length && codes[0].rawValue) {
+                                handleDecodedBarcode(codes[0].rawValue);
                             }
-                        } catch (e) {}
-                    }
-
-                    if (zxingScanner) {
-                        try {
-                            tempCanvas.width = video.videoWidth;
-                            tempCanvas.height = video.videoHeight;
-                            tempCtx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
-                            const imgUrl = tempCanvas.toDataURL('image/jpeg', 0.85);
-                            const decoded = await zxingScanner.decodeFromImageUrl(imgUrl);
-                            if (decoded && decoded.getText) {
-                                onBarcodeDetected(decoded.getText());
-                                return;
-                            }
-                        } catch (e) {}
-                    }
-                }, 250);
-            } catch (err) {
-                scanningActive = false;
-                document.getElementById('barcodeLaserBox').classList.add('hidden');
-                document.getElementById('barcodeIdleView').classList.remove('hidden');
-                setStatusMsg(`Kamera hatası: ${err.message || 'izin gerekli'}`, true);
+                        } catch (_) {}
+                        requestAnimationFrame(scanLoop);
+                    };
+                    requestAnimationFrame(scanLoop);
+                }
             }
         }
 
-        function stopBarcodeScan() {
-            scanningActive = false;
-            if (scanLoopId) {
-                clearInterval(scanLoopId);
-                scanLoopId = null;
+        function stopCameraScanner() {
+            const box = document.getElementById("scannerBox");
+            const video = document.getElementById("scannerVideo");
+            const label = document.getElementById("camToggleLabel");
+            box.classList.add("hidden");
+            label.textContent = "Kamerayı Aç";
+            if (codeReader) {
+                try { codeReader.reset(); } catch (_) {}
             }
-            if (zxingScanner) {
-                try { zxingScanner.reset(); } catch (e) {}
-                zxingScanner = null;
-            }
-            if (mediaStream) {
-                mediaStream.getTracks().forEach(t => t.stop());
-                mediaStream = null;
-            }
-            const video = document.getElementById('barcodeVideo');
-            if (video) {
+            if (video && video.srcObject) {
+                video.srcObject.getTracks().forEach(t => t.stop());
                 video.srcObject = null;
             }
-            document.getElementById('barcodeLaserBox').classList.add('hidden');
-            document.getElementById('barcodeIdleView').classList.remove('hidden');
-            setStatusMsg('Kamera kapalı');
         }
 
-        async function addPartToSession() {
-            if (isAddingPart) return;
-
-            const pInput = document.getElementById('parcaNoInput');
-            const qInput = document.getElementById('adetInput');
-            const kod = normalizePartCode(pInput.value, false);
-            const adet = parseInt(qInput.value, 10) || 1;
-
-            if (!kod) {
-                setStatusMsg('Lütfen barkod okutun veya Parça No girin.', true);
-                pInput.focus();
-                return;
-            }
-
-            isAddingPart = true;
-            try {
-                const expMap = getExpectedTotals();
-                const isMissingFromWaybill = Object.keys(expMap).length > 0 && typeof expMap[kod] !== 'number';
-
-                const shelf = getShelfForCode(kod);
-                const key = 'ok_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-                const item = {
-                    kod,
-                    adet: adet > 0 ? adet : 1,
-                    raf: shelf,
-                    irsaliyedeYok: isMissingFromWaybill,
-                    zaman: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-                };
-
-                if (kabulRef && isRealtimeOnline) {
-                    await kabulRef.child('okutulanlar').child(key).set(item);
-                } else {
-                    const res = await fetch(`${DB_BASE_URL}/${SESSION_PATH}/okutulanlar/${encodeURIComponent(key)}.json`, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(item)
-                    });
-                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                    await fetchSessionFallback();
-                }
-
-                pInput.value = '';
-                qInput.value = '1';
-                refreshMatchBadge();
-
-                const shelfSuffix = shelf ? ` • Raf: ${shelf}` : '';
-                if (isMissingFromWaybill) {
-                    setStatusMsg(`${kod} (${item.adet} adet)${shelfSuffix} listeye eklendi — İrsaliyede Yok!`, true);
-                } else {
-                    setStatusMsg(`${kod} (${item.adet} adet)${shelfSuffix} kaydedildi.`);
-                }
-            } catch (err) {
-                setConnBadge(`Bağlantı Yok (${err.message})`, 'text-rose-400');
-                setStatusMsg(`Kayıt hatası: ${err.message}`, true);
-            } finally {
-                isAddingPart = false;
+        function toggleCameraScanner() {
+            const isHidden = document.getElementById("scannerBox").classList.contains("hidden");
+            if (isHidden) {
+                startCameraScanner();
+            } else {
+                stopCameraScanner();
             }
         }
-
-        window.addEventListener('online', () => forceReconnect());
-        initDatabase();
     </script>
 </body>
 </html>
